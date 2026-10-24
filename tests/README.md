@@ -139,6 +139,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `views/timeline.test.js` | 编辑区「时间线总览」的数据（`views/timeline.ts` 的 `buildTimelineMatrix`，纯函数，2026-10-24）：一个日子一项、按故事日子从早到晚，同一天的几章按章号，往回跳的章排到它那一天、对账照旧报它；轴上不带年份的日子、小字第几天、月份与季节（没起点只写第几天）；卡片的时段（跨天写到哪天、几天）、比上一章、依据、结尾是第几天；回忆挂在前一章那一天里（第 1 章就是回忆挂第一天，整本只有回忆给第 0 天）；实际事件按线的先后带颜色与证据、计划的不给、没事件给梗概；颜色不循环（第 9 条起灰）；标题栏、补推、重推、起点建议与工程页那一组同一份，还没推的章不上轴 |
 | `editor/tabLabels.test.js` | 标签上的名字（`media/src/editor/tabLabels.ts`，纯函数）：后端给的短标记与名字、没给退回文件名；名字一样短标记不同不算同名；同一种不同目录各写紧挨着的那一级、只撞了一部分的只加撞上的；紧挨着的一级也一样就往上加、工程根写「工程根」、目录完全一样退到文件名 |
 | `shells/cli.test.js` | 独立版 CLI：不带目录时 root 为空，不把 cwd 当成工程 |
+| `stores.test.js` | 配置与密钥放在哪：缺省 `~/.novelforge`，`NOVELFORGE_HOME` 给了就用它（Android 壳把密钥留在 app 私有目录），空白当没给 |
 | `shells/hostFs.test.js` | 本机一层目录列举（打开文件夹用），只在临时目录里扫 |
 | `shells/windowState.test.js` | `~/.novelforge/window.json` 的读写（写进临时目录） |
 | `shells/workspaceHub.test.js` | WorkspaceHub：工程目录可空、可热换；欢迎页的 `createProject`（建好、初始化、只回发起的窗口 `projectCreated` 带真实路径、还没打开；没建成只回一条 toast）、`inspectBook`（回切得出几章、不写文件）、`workspaces` 带「放在」的缺省值（最近那本书所在的目录，一本都没打开过是家目录） |
@@ -163,6 +164,7 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 
 | 文件 | 覆盖 |
 |---|---|
+| `shells/nodeServer.test.js` | 独立版跑在 node 上（Android 壳的内置服务）：`nodeServe` 对齐 Bun 的几样——多条 set-cookie、表单请求体、**流式响应边到边写**、**客户端断开 abort `req.signal`**、处理器抛了回 500 服务还在、升级时的 `data` 带进 `open`、升级被拒回真的 403、端口被占抛 EADDRINUSE；再照 Android 构建同一条路打成单文件（前端资源用占位）、子进程里起，走一遍 401 登录页 → 登录换 cookie → 页面 → WebSocket（跨源 403）→ MCP 要 Bearer |
 | `tools/readTools.test.js` | 只读三件套：list 的 60 项上限与「还有 N 项未列出」、read 的行号与「第 X–Y 行未读」（含接着读的 offset）、search 的章号升序与 `dropped > 0` 时那行 ⚠；**越界与不存在一律给 `error` 不抛**（模型看得到才换得了路）；跑完三个工具磁盘 mtime 一个都不变 |
 | `tools/generateTool.test.js` | `generate` 工具：draft 落进 store 而**返回文本里没有正文**（三千字塞回循环，每走一步重烧一遍）、层与能力的组合问 `STAGE_CAPABILITIES`、`settle` 明确不支持并指路对话页、认不出的路径给 error 且一次模型都不调（老工程的中转站、卷纲、`plots/` 下的细纲；`summaries/` 子目录里的是细纲，不在其列）、`history` 恒为空、正文层走 `config.active`、**失败也照样报一次账**（请求发出去钱就花了）、**工具自己不提上限**（「已用 1/10」那句是调用方的） |
 | `tools/generateTiers.test.js` | `generate` 用哪个模型：细纲走 `plotOutline` 档、**架构走 `setting` 档**（六期，与工程页「补齐架构」同一个），正文与大纲严格用对话页那个；档位没配退回对话页那个；审稿当场拒绝、一次都不调；删掉的层没留下档位；`agent` 不再是一项任务档位（调度交给外部 agent 了） |
@@ -348,10 +350,10 @@ e2e 那组归 Bun 管，`bun test` 没有自定义 reporter 的接口——但�
 | `e2e/standalone/server.test.js` | 独立版服务（**需 Bun**）：静态资源、「关于」的版本号是 `package.json` 的（编译时写进资源表，不是运行时找文件）、WS 首条消息（`state` 带分段格式，没写是 `blank`）、`Origin` 校验；`selectPlot` 由后端算落在哪一层（已完成的章落正文层，**下一步转到全书的下一步**「写第 4 章」，落在第 4 章那份细纲上、不带区间），且切层不预置花钱的能力；内置编辑器的消息往返——保存落盘、过期 hash 触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒；**核对磁盘**（hash 对不上推新版且带 `draftPath` / `kind`、对得上不推、读不到推没了）、**带了基线、文件却不在时回「没了」且不在原路径重建**、带 `recreate` 才写、自己保存之后核对不误报；**连上就推章节索引**（一章一行按章号升序、只排了细纲的第 4 章主路径是细纲）、打开的文件带称呼（正文面包屑写第几章、细纲带「细纲」、认不出的留扩展名）、打开请求上的 `preview` / `replace` 原样带回；`openDraft` 的按需创建与并列打开；资源管理器的 `listDir` → `dirListings` 往返；**空窗口** ready 后无假工程、`openFolder` 热换、`mode: 'add'` 仍一份工作区、`closeFolder` 卸掉；**全书查找替换的主路径**（`bookFind` → 带 `replacement` 的预览 → `bookReplace` 只换勾着的那一处、汇总几个文件几处、之后推 `state` → `listVersions` / `readVersion` 找得回替换前那一版） |
 | `contract/layerBoundary.test.js` | 工具层与 MCP 端口的边界：`tools/` 一行都不 import `mcp/` 或 `controller/`、`mcp/` 只 import `./`、`node:`、`../tools/`、`../runtime/`（不碰 controller / workspace / generation，执行端由壳注入）、工具体里不出现 `ctx.budget`。这条守的是「工具能端出去」「端口不钉死在宿主上」两件事，**能悄悄长回来**，只能靠断言守 |
 | `contract/toolText.test.js` | 模型读得到的文字（十二个工具的描述、参数说明与枚举值、MCP 的 `instructions`）里没有旧链路的说法（卷、剧情段、中转站、拆分、`volumes/`、`manuscripts/`）；哪个工具的可用动作里都没有 `split` |
-| `contract/version.test.js` | 版本号只记在 `package.json` 一处：`tauri.conf.json` 的 `version` 按它所在目录解析指向仓库根 `package.json`、`Cargo.toml` 是占位的 `0.0.0`、版本号是 `X.Y.Z`（release.yml 只认这个形状） |
+| `contract/version.test.js` | 版本号只记在 `package.json` 一处：`tauri.conf.json` 的 `version` 按它所在目录解析指向仓库根 `package.json`、`Cargo.toml` 是占位的 `0.0.0`、Android 的 `app/build.gradle` 读仓库根 `package.json`（没有写死的 `versionName`）、版本号是 `X.Y.Z`（release.yml 只认这个形状） |
 | `contract/corePurity.test.js` | `src/core/` 零 vscode 依赖——分层架构的硬约束，也是 `external: ['vscode']` 成立的前提 |
 | `contract/gatewayWrites.test.js` | **第 7 条的普查固化**：`src/core/` 下除 `workspace/` 之外直接动磁盘的调用（`fs.writeFile` / `mkdir` / `rename` / `copyFile` / `cp` / `rm` / `unlink`……与 `writeText`）只剩按设计不走网关的那几个文件（`model/fs.ts` 的实现、`model/project.ts` 的迁移 / 固定目录 / manifest、`model/session.ts` 的会话、`stores.ts` 与 `skills/library.ts` 的工程外文件），逐个文件数着处数；用 Node 读全文，不靠 grep（`grep -r` 把带 NUL 字符的源文件当二进制跳过，上一次普查因此漏了 `features/characterMaintenance.ts`） |
-| `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、三个壳互不 import、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
+| `contract/shellPurity.test.js` | 壳的契约（[src/shells/README.md](../src/shells/README.md)）：`shells/shared/` 零宿主依赖（不碰 vscode / node: / bun:）、两个 TS 壳互不 import、桌面壳与 Android 壳里没有 TS、全仓库没有 `host.name ===` 这类按身份分支的写法。三条都是**能悄悄长回来**的东西，只能靠断言守 |
 | `contract/sampleNovel.test.js` | `sample-novel/` 自洽：manifest 章数与磁盘一致（v1 结构，索引的是 `chapters`、**不再记 `summaryHash`**）、每章 `contentHash` 对得上、细纲的三个指纹都新鲜（`upstreamHash` 对大纲里那一节、`writtenFrom` 对细纲七节、`sourceHash` 对正文）、细纲 frontmatter 指回章号、**细纲号 = 章号**、第 4 章是计划（关键事件排好了，没有正文、没定稿、没记 `writtenFrom`）、架构三件都填过且配置解析得出规模参数、大纲覆盖到总章数、没有 `volumes/`、`manuscripts/` 与 `plots/`、示例纲要能命中 3 个角色 |
 
 ## helpers/

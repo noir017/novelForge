@@ -15,7 +15,7 @@ Novel Forge 做两件事：
 
 除此之外它也能用 AI 往下写——从一句话展开成架构、大纲、细纲，再一章一章写成正文，见[也能接着写](#也能接着写)。
 
-三种用法共用同一套核心：浏览器里的独立 Web 版（也能用 Docker 放到服务器上）、桌面 App、VS Code 插件。编辑器在前两种里；插件用的是 VS Code 自己的编辑器。
+四种用法共用同一套核心：浏览器里的独立 Web 版（也能用 Docker 放到服务器上）、桌面 App、Android App、VS Code 插件。编辑器在前三种里；插件用的是 VS Code 自己的编辑器。
 
 ---
 
@@ -86,6 +86,15 @@ npm run app:build    # 出安装包（Linux: AppImage / deb，Windows: NSIS）
 ```
 
 Windows 安装包必须在 Windows 上构建，见 [.github/workflows/app.yml](.github/workflows/app.yml)；细节与已知坑见 [src/shells/desktop/README.md](src/shells/desktop/README.md)。
+
+### Android App
+
+手机上用：装 Release 里的 `NovelForge-<版本>-android-arm64.apk`（arm64 手机，Android 8 起）。界面就是独立 Web 版的那个页面，手机上是窄屏布局。第一次打开选一种用法，之后按返回键 →「服务端设置…」随时换：
+
+- **本机**：服务就跑在手机上，不用另外开电脑。书放在「Documents/NovelForge」（要授「所有文件访问」，文件管理器、同步盘都看得到，卸载 app 也不删）；不授权就放在 app 自己的目录，卸载时一起删。API Key 留在 app 私有目录。用着的时候通知栏挂一条「本机服务在运行」：写一章要几分钟，切到别的 app 也不会断；从最近任务里划掉 app，服务一起关。
+- **远程**：连一台已经部署好的服务（上面的 Docker，或用 `--host` 绑出去的独立版），填地址和令牌。书在服务器上，手机只是个窗口。
+
+页面是照着鼠标做的：右键菜单在手机上靠长按，名词、章节的悬停浮窗手机上看不到。构建与已知限制见 [src/shells/android/README.md](src/shells/android/README.md)。
 
 ### VS Code 插件
 

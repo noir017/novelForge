@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Novel Forge 首先是一个**写长篇小说的编辑器**（编辑器的功能优先做），其次**照正文自动整理这本书**：每章细纲、角色卡、设定与剧情线由机器维护，作者不用手改（改了机器也不覆盖），便于管理。它也能往下写：从一句念头展开成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆成一章一份的细纲，最后一章一章写成正文——这条线排在编辑器与整理之后。三种壳（独立 Web 服务 / 桌面 App / VS Code 插件）共用同一套核心，内置编辑器在独立版与桌面版里。
+Novel Forge 首先是一个**写长篇小说的编辑器**（编辑器的功能优先做），其次**照正文自动整理这本书**：每章细纲、角色卡、设定与剧情线由机器维护，作者不用手改（改了机器也不覆盖），便于管理。它也能往下写：从一句念头展开成小说配置、故事前提、角色图谱与世界观，再排情节大纲、拆成一章一份的细纲，最后一章一章写成正文——这条线排在编辑器与整理之后。四种壳（独立 Web 服务 / 桌面 App / Android App / VS Code 插件）共用同一套核心，内置编辑器在独立版、桌面版与 Android 版里（后两个都是套独立版的页面）。
 
 实现上分两条主线：**往下展开**——按**创作阶段**（架构 / 大纲 / 细纲 / 正文）分别装配上下文并透明展示，把上一层产物展开成下一层（流式预览、当场点头才落盘），正文按细纲的目标字数自动续写；**往回记住**——定稿（照正文反向更新这一章的细纲与连续性事实 + 本章出现了哪些设定 + 出场角色的「当前状态」 + 这一章在叙事线上发生了什么 + 这一章的故事时间）、叙事线（一条剧情线一个文件，伏笔挂在线下，作者一眼看出各条线走到哪；`threads/时间线.md` 一章一行记故事时间，日期现算，正文写明的日子当校准点）、全文大纲、角色卡与设定名录（地点、势力、物品、概念……出现在哪几章、建条目、按水位增量整合），让「记忆」有限且可人工校正。审稿是正文层的可选动作：只出报告，作者在报告卡上勾选之后按勾选的条目修稿。作者还可以给每个阶段（规划 / 写正文 / 审稿 / 修稿）绑一份**写作技能**（常规的技能目录：纯提示词的 `SKILL.md`，加它引用的 `references/` 一类附带文件），这个阶段往后的每一次生成都把它放在提示词最前面。已经写了一部分的书走**拆书**：工程里的整本 txt 导入成章节，再「从已写正文补齐」——先照正文整理出没定稿那几章的细纲（情节大纲就是各章细纲的梗概，细纲齐了它就齐了），再补角色卡与架构（只补空白），最后排线并逐章补记叙事线；别人的书只学写法（文风进 `style.md`，结构与节奏成一份规划技能），原文不进工程。所有数据是工作区里的普通 Markdown（`.novelforge/` 目录），可 Git、可手改。整本书的版本由 app 自己的**存档点**管（手动存、批量动作之前自动存，看跟现在比改了什么、整本或单份退回），不读写 `.git`——Git 留给作者自己同步。
 
@@ -52,10 +52,11 @@ npm run test:e2e         # 独立版服务（需 Bun）
 | `src/core/features/` | 功能编排：批量流水线（补齐架构 / 批量拆细纲 / 批量写章）、定稿（照正文反向更新细纲与「设定」一节 + 角色当前状态 + 叙事线：认事件 / 归并 / 当前进度）、叙事线（从情节大纲排出；拆细纲的计划随细纲写进线里 `threadPlan.ts`；从已写正文补记 `threadsBackfill.ts`：水位之后定稿过的章按章号串行走定稿第三步；故事时间单独一次 `storyTime.ts`，同步过、时间线里还没有的章由 `timelineBackfill.ts` 几章一批补推、机器写的行可以重推，作者在工程页改时间与起点 `timelineEdit.ts`）、一致性预检（含叙事线的三类提醒）、全文大纲、角色卡、设定名录（单独记设定 / 补记、建条目、整合、按目录整理、批量展开；展开一条设定的解码 `loreExpand.ts`、落定设定的解码 `loreSettle.ts`）、文风提取、拆书（导入原稿 / 从已写正文补齐 / 从参考书学写法）、全书替换（预览里勾着的那几处经网关逐份写，每份先存一版历史）、存档点（`checkpoint.ts`：十一处批量动作在作者确认之后、第一次写盘之前自动存一个，绝不挡事；退回的编排） | [src/core/features/README.md](src/core/features/README.md) |
 | `src/core/skills/` | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / 我的技能库 / 本工程），都是常规的技能目录（`SKILL.md` + 引用到的附带文件）；内置的是仓库里的 `builtin/<名字>/`，构建时由 `scripts/embed-skills.js` 内嵌成 `builtin/embedded.ts`（生成文件，不入库）；从 GitHub **先检查再安装**（附带文件一起下）、卸载进回收站、工程的阶段绑定。纯函数（frontmatter 的 YAML 子集、附带文件、兼容检查、绑定文件格式、`skillStageOf`）在 `model/writingSkill.ts`；注入在 `context/` 的 `skill` 层 | [src/core/skills/README.md](src/core/skills/README.md) |
 | `src/core/llm/` | LlmProvider 接口、OpenAI / Anthropic 实现、注册表与 API Key | [src/core/llm/README.md](src/core/llm/README.md) |
-| `src/shells/` | ★ 三个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
+| `src/shells/` | ★ 四个壳并排放这里，外加 `shared/panes.ts`（所有 pane 的 DOM 唯一来源）。**壳的契约在这份 README 里**：壳只做实现 Host、传输与生命周期、平台专属入口三件事 | [src/shells/README.md](src/shells/README.md) |
 | `src/shells/vscode/` | VS Code 壳：extension 入口、命令、两个 webview 宿主、vscode-lm | [src/shells/vscode/README.md](src/shells/vscode/README.md) |
-| `src/shells/standalone/` | 独立 Web 服务壳（Bun）：HTTP/WS、WorkspaceHub 热换工程、本机列目录、页面装配、CLI 的 TerminalHost | [src/shells/standalone/README.md](src/shells/standalone/README.md) |
+| `src/shells/standalone/` | 独立 Web 服务壳（Bun；没有 Bun 时经 `serve.ts` 走 node 的 `node:http` + `ws`）：HTTP/WS、WorkspaceHub 热换工程、本机列目录、页面装配、CLI 的 TerminalHost | [src/shells/standalone/README.md](src/shells/standalone/README.md) |
 | `src/shells/desktop/` | 桌面壳（Windows / Linux，Rust）。**一层纯壳**：sidecar 不传工程路径，闪屏只负责起服务；打开文件夹在页面里热换。这个目录本身就是 Tauri 工程根 | [src/shells/desktop/README.md](src/shells/desktop/README.md) |
+| `src/shells/android/` | Android 壳（Java，WebView）。**一层纯壳、没有 TS**：本机模式把独立版打成 node 单文件（`scripts/build-android-server.js`），连同 Termux 编的 node 装进 APK、当子进程起；远程模式打开已部署的服务。这个目录本身就是 gradle 工程根，APK 在 CI 上编（`android.yml`） | [src/shells/android/README.md](src/shells/android/README.md) |
 | `media/` | 前端资源（原生 TS/CSS，无框架）。**仓库里只有源码 `media/src/` 与 `icon.svg`，构建产物在 `dist/media/`**；`standalone.css` / `editor.js` / `explorer.js` 只在独立版加载。内置编辑器的标签原本只认文件，唯一的例外是不对应文件的特殊标签（`editor/store.ts` 的 `SpecialTab`，眼下是「叙事线总览」与「时间线总览」两个） | [media/README.md](media/README.md) |
 | `tests/` | 自动化测试，按类型分目录（也是理解核心行为的最佳入口） | [tests/README.md](tests/README.md) |
 | `scripts/` | 构建与诊断工具（build-media / embed-media / build-sidecar / verify-css / diag-stream） | [scripts/README.md](scripts/README.md) |

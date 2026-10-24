@@ -1,13 +1,14 @@
-# shells — 三个宿主壳
+# shells — 四个宿主壳
 
-同一份 [core/](../core/README.md) 装在三个壳里：VS Code 插件、独立 Web 服务、桌面 app。
-三个并排放在这里，不再一个在 `src/` 下、一个在仓库根上。
+同一份 [core/](../core/README.md) 装在四个壳里：VS Code 插件、独立 Web 服务、桌面 app、Android app。
+并排放在这里，不再一个在 `src/` 下、一个在仓库根上。
 
 | 壳 | 是什么 | README |
 |---|---|---|
 | [vscode/](vscode/README.md) | VS Code 插件：命令、两个 webview 宿主、vscode-lm | [vscode/README.md](vscode/README.md) |
-| [standalone/](standalone/README.md) | 独立 Web 服务（Bun）：HTTP/WS + 浏览器界面；工程可空、运行时热换 | [standalone/README.md](standalone/README.md) |
+| [standalone/](standalone/README.md) | 独立 Web 服务（Bun；没有 Bun 时跑在 node 上）：HTTP/WS + 浏览器界面；工程可空、运行时热换 | [standalone/README.md](standalone/README.md) |
 | [desktop/](desktop/README.md) | 桌面 app（Tauri / Rust）：把独立版当 sidecar 装进一个窗口 | [desktop/README.md](desktop/README.md) |
+| [android/](android/README.md) | Android app（Java / WebView）：本机模式把独立版打成 node 单文件当子进程起，远程模式连已部署的服务 | [android/README.md](android/README.md) |
 | [shared/](shared/panes.ts) | 两个以上壳共用的页面骨架（**所有 pane 的 DOM 唯一来源**） | 见下 |
 
 ## 壳的契约
@@ -51,7 +52,8 @@
 ```
 core/  ←  shells/shared/  ←  shells/vscode/
                           ←  shells/standalone/  ←  shells/desktop/（当 sidecar 起它，不 import）
+                                                 ←  shells/android/（打成 node 单文件当子进程起，不 import）
 ```
 
-反向依赖不允许（core 不认识任何壳），**壳与壳之间也不许互相 import**——桌面壳复用独立版靠的是
+反向依赖不允许（core 不认识任何壳），**壳与壳之间也不许互相 import**——桌面壳与 Android 壳复用独立版靠的是
 「把它当子进程起起来」，不是代码耦合。同样由 `shellPurity.test.js` 守着。

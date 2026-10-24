@@ -1,4 +1,4 @@
-# standalone — 独立 Web 服务壳（Bun）
+# standalone — 独立 Web 服务壳（Bun；没有 Bun 时跑在 node 上）
 
 不装 VS Code 也能用的第二个宿主：本机起一个 Web 服务，浏览器里操作。与插件壳共用 `core/` 与
 [shared/panes.ts](../shared/panes.ts)，自己只实现 `Host` 窄接口与一层 HTTP/WebSocket 传输
@@ -11,7 +11,7 @@
 | [main.ts](main.ts) | 入口。`init` 装上 `TerminalHost` 后走 **core 的** `initProjectFlow`；否则先读 `NOVELFORGE_TOKEN` 过一遍 `exposureError`（绑非回环地址没令牌就拒绝启动），再起服务（端口被占顺延，最多 20 次）并按需开浏览器。 |
 | [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`，外加 `--port` / `--host` / `--no-open` / `--verbose`。不带位置参数时不再把当前目录当成工程。令牌不走参数（会出现在 `ps` 里）。 |
 | [auth.ts](auth.ts) | 访问控制（纯函数）：什么时候必须配令牌（`exposureError`）、Bearer / cookie 认不认、Origin 白名单、登录页与 `/login`。 |
-| [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。每条 WebSocket 是一个窗口，握手地址上的 `?project=` 说它开哪个工程；不带工程的 `/` 302 到最近操作的那个工程。消息全交给 `WorkspaceHub.receive`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
+| [server.ts](server.ts) | 路由与收发（经 `serve.ts` 监听）：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。每条 WebSocket 是一个窗口，握手地址上的 `?project=` 说它开哪个工程；不带工程的 `/` 302 到最近操作的那个工程。消息全交给 `WorkspaceHub.receive`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
 | [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：同时开几个工程，每个窗口各绑一个（或空着），同一个工程的几个窗口共用一份 `ChatController`；吃掉打开/关闭文件夹与设置类消息；没有窗口的工程空闲一分钟后关（最近操作的那个留着给 MCP）。欢迎页的「新建一本书」「导入写好的书」也在这里：`createProject` 经 `core/actions.ts` 的 `createBookAt` 建文件夹并初始化、回 `projectCreated`（真实路径，打开由前端照常发 `openFolder`），`inspectBook` 回那本 txt 切得出几章；`workspaces` 另带「放在」的缺省值 `newProjectParent`（最近那本书所在的目录，没有就是家目录）。 |
 | [scopedHost.ts](scopedHost.ts) | 注册给 core 的全局 Host：按 `AsyncLocalStorage` 里的窗口上下文把 `getHost()` 转给那个窗口自己的 `FileHost`，弹窗、toast、打开编辑器只落到对应的网页上。 |
 | [windowState.ts](windowState.ts) | `~/.novelforge/window.json`：上次打开的目录与最近打开列表。 |
@@ -20,6 +20,8 @@
 | [promptHub.ts](promptHub.ts) | 未决网页弹窗的登记与回执匹配。WS 全部断开时一律按取消处理。 |
 | [terminalHost.ts](terminalHost.ts) | `Host` 的终端实现，只给 `novelforge init` 用：问答走 readline，`openFile` 报一句路径。有了它，CLI 只是「第三个宿主」，「初始化工程」这条流程仍然只有一份实现。 |
 | [page.ts](page.ts) | **布局**：标题栏（文件 / 编辑 / 视图 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器；无工程时编辑器区是欢迎页（开始三条路——新建一本书、导入写好的书、打开文件夹——、最近、怎么上手，「帮助 → 欢迎页面」随时再打开）。六个 pane 的 DOM 全部取自 [../shared/panes.ts](../shared/panes.ts)（含只有这里装配的「文件」页），这里没有第二份。 |
+| [serve.ts](serve.ts) | 起 HTTP + WebSocket 服务、与运行时无关的那一面：形状照 `Bun.serve` 摆（`fetch(req, ctl)` + `websocket` 三个回调），有 `Bun` 这个全局就原样交给 `Bun.serve`，没有就交给 `nodeServe.ts`。 |
+| [nodeServe.ts](nodeServe.ts) | node 上的监听：`node:http` + `ws`（开发依赖，打包进单文件）。眼下只有 Android 壳走这里（手机上只有 Termux 编的 node）。 |
 | [assets.ts](assets.ts) | `/media/*` 的字节来源（内嵌资源表）。与 `page.ts` 分开：拼一段 HTML 不该牵进那个几十 MB 的生成文件。 |
 | [systemOpen.ts](systemOpen.ts) | 交给系统默认程序打开（`explorer` / `open` / `xdg-open`）。开浏览器与编辑器的「外部打开」共用这一份。 |
 | `mediaAssets.ts` | **生成文件**（已 gitignore）。由 [../../scripts/embed-media.js](../../../scripts/embed-media.js) 把前端资源 base64 内嵌（`.js` / `.css` 取自构建产物 `dist/media/`，`icon.svg` 取自 `media/`），使单文件可执行不依赖外部资源。`npm run typecheck` / `test:e2e` / `dist` 前会自动生成。 |
@@ -29,6 +31,7 @@
 - **单用户、缺省只绑本机，工程可空**：缺省 `127.0.0.1`、无鉴权。工作区由 [workspaceHub.ts](workspaceHub.ts) 持有，一个进程同时开几个工程，每个浏览器窗口一个；网址上的 `?project=` 跟着窗口的工程走，刷新、重连都回到它。设置「新窗口中打开项目」（默认开）决定在已有工程的窗口里打开别的工程时开新窗口还是换掉当前的。前端的 localStorage（标签页、展开的目录、输入框草稿）按工程分开存。没有工程时不造假实例，创作类消息 toast「请先打开文件夹」。设置仍可用（配置在 `~/.novelforge`）。
 - **Origin 校验**：WebSocket 不受同源策略约束，恶意网页能向本机端口发消息。`server.ts` 因此校验 `Origin` 只认本机同端口；没有 `Origin` 头的（命令行工具、冒烟测试）放过。`/mcp` 用同一条规则。规则本身在 [auth.ts](auth.ts) 的 `isAllowedOrigin`。
 - **部署到服务器：`--host` + 令牌，fail-closed**：Docker 镜像（仓库根 `Dockerfile`）绑 `0.0.0.0`，「只有本机连得进来」这道墙就没了，所以绑非回环地址必须配 `NOVELFORGE_TOKEN`（至少 16 位），没配 `main.ts` 直接拒绝启动。配了令牌就全站鉴权（与绑在哪无关）：网页在登录页交一次令牌换 cookie（值由令牌派生，`HttpOnly; SameSite=Lax`，经 HTTPS 反代时加 `Secure`），MCP 带 `Authorization: Bearer`；`/media/*`、`/favicon.ico`、`/login` 不设防。这时 Origin 还认同源（与 `Host` / `X-Forwarded-Host` 一致）——**只在配了令牌时认**：没令牌时认同源会放过 DNS rebinding（`evil.com:3680` 解析到本机时 Origin 与 Host 恰好一致）。令牌不进日志，带令牌的请求头写法也不打（`logger.ts` 的脱敏见到 `Bearer` 就整段抹掉）。
+- **两个运行时，路由只写一份**：平时跑在 Bun 里；Android 壳里没有 Bun，由 [../../../scripts/build-android-server.js](../../../scripts/build-android-server.js) 用 esbuild 把 `main.ts` 打成 node 单文件，监听换成 `nodeServe.ts`。差别只收在 `serve.ts` 那一层：node 那边要自己对齐 Bun 的几样行为——流式响应边到边写（MCP 的 SSE）、客户端断开时 abort `req.signal`（MCP 靠它取消调用）、升级被拒把 401 / 403 写回裸 socket、处理器抛了只打日志不让进程退出。SQLite 本来就有 `node:sqlite` 兜底（`core/runtime/db.ts`）。
 - **`/mcp` 关掉空闲超时**：一次工具调用可能跑几分钟（写一章），期间连接上一个字节都没有，而 Bun 缺省 10 秒空闲就断。`server.timeout(req, 0)` 只对这一个请求生效。MCP 调用落在地址 `?project=` 指定的那个工程上，不带就落到最近操作的那个窗口的工程；启动日志里那行 `claude mcp add …` 就是接入命令。
 - **openFile 的语义差异**：插件里是「打开 VS Code 的编辑器 tab」，这里是「在网页内置编辑器里打开」。刻意让 `openFile` 本身改道，这样 controller 里「产物落盘后打开」「点章节」「点上下文条目」三处调用点一次全对。非文本文件回落到系统默认程序。
 - **两块编辑区**：`openInEditor(rel, pane)` 的 `pane` 决定 `editorOpen` 落到哪一块，`openBeside` 就是 `pane: 'draft'`。`editorOpen` 广播时顺手带上 `draftPath`（由 `draftPathOf` 从章节路径推导），前端据此显示工具栏上的「草稿」按钮——前端不该自己复刻「什么算章节」。`editorSaved` 也必须带它，否则按钮会在首次保存后消失。同一个理由，两条消息都带 `kind`（`kindOfPath` 算的这份文件是什么）：前端拿它分「正文」（`chapter` / `draft`）与其余文件，Tab 缩进用全角还是半角就看它；没打开工程时省略，前端当非正文。还带 `label`（`core/views/editorLabel.ts`：标签上的类型短标记与去掉扩展名的名字、工具栏面包屑「细纲 › 第一卷 › 第 3 章 夜访」）——三处推文件的地方都经 `viewOf()` 拼，漏一处前端就在保存一次之后退回原始路径。打开请求上的 `preview` / `replace`（临时标签、上一章 / 下一章的原位换掉）后端不看，`openInEditor` / `openFile` / `openBeside` 的 `intent` 原样带回 `editorOpen`。
@@ -49,6 +52,8 @@
 ## 验证
 
 [`tests/e2e/standalone/server.test.js`](../../../tests/e2e/standalone/server.test.js)（`npm run test:e2e`，需 Bun）：静态资源、WS 首条消息、Origin 校验，内置编辑器的读写往返——保存落盘、过期基线触发冲突且不覆盖、强制保存、越界路径与非文本扩展名被拒、无扩展名章节可打开，以及草稿的按需创建与并列打开；资源管理器的目录列举——点开头的目录列得出来、目录排在文件前、`editable` 标注、一次多目录、越界与不存在的目录降级成 `error`；空窗口（不传工程目录）ready 后 `currentId` 为空、`openFolder` 热换、`mode: 'add'` 仍只有一个工作区、`closeFolder` 回到空窗口。
+
+node 那一半：[`tests/integration/shells/nodeServer.test.js`](../../../tests/integration/shells/nodeServer.test.js)——`nodeServe` 对齐 Bun 的那几样逐条钉住；再照 Android 构建同一条路打成单文件、子进程里用 node 起，走一遍登录、页面、WebSocket（含跨源拒绝）与 MCP。e2e 只在 Bun 下跑，覆盖不到这一半。
 
 令牌鉴权：纯函数在 [`tests/unit/shells/auth.test.js`](../../../tests/unit/shells/auth.test.js)（什么时候拒绝启动、Bearer / cookie、Origin 的同源与 DNS rebinding、`next` 防外跳）；整条往返在 e2e 的「令牌鉴权」一节（未登录回 401 登录页、错令牌不种 cookie、带 cookie 的 WS 收得到 init、MCP 要 Bearer）。镜像本身由 CI 的 `docker.yml` 起容器冒烟。
 
