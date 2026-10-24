@@ -9,6 +9,12 @@
  * | 当前进度只照抄【线】后面的名字 | 「名字（种类）」照抄回来，22 条只落盘 1 条 |
  * | 归并只有同一件事才并，同一个物件 / 同一个人身上的两件事不算 | 约一半并错 |
  * | 排线：有感情发展、成长或堕落弧线的分别排成感情线、人物线 | 没有感情线、漏了一条现成的人物线 |
+ *
+ * 2026-10-24 一份 80 多章真实工程的报告之后补的：
+ *
+ * | 断言 | 报告里看到的 |
+ * |---|---|
+ * | 当前进度按【人物】的性别写人称，原来写错的改过来；【人物】是写了性别的卡里的主角与出现过名字的人 | 女主角的当前进度一路写成「他」 |
  */
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -47,6 +53,11 @@ describe('threadsPrompt.ts · 试跑之后补上的几句', () => {
     assert.ok(THREAD_PROGRESS_SYSTEM.includes('line 只照抄【线】后面那个名字，一字不改：不带种类，不加括号、引号或别的字'));
   });
 
+  test('当前进度：人称照【人物】的性别写，原来写错的改过来', () => {
+    const { THREAD_PROGRESS_SYSTEM } = mod();
+    assert.ok(THREAD_PROGRESS_SYSTEM.includes('人称照那里写的性别：女的用「她」，男的用「他」；原来的当前进度里用错了的，这一次改过来'));
+  });
+
   test('归并：只有确实是同一件事才并；同一个物件、同一个人身上的两件事不算；拿不准不并', () => {
     const { THREAD_MERGE_SYSTEM } = mod();
     for (const s of ['只有确实是同一件事、同一条线，才并进已有的那一条', '同一个物件、同一个人身上的两件事不算同一件事', '拿不准就不要并', '"reason"']) {
@@ -61,5 +72,24 @@ describe('threadsPrompt.ts · 试跑之后补上的几句', () => {
   test('排线：有感情发展、成长或堕落弧线的分别排成感情线、人物线，没有就不凑数', () => {
     const { threadPlanSystem } = mod();
     assert.ok(threadPlanSystem(30, false).includes('故事里有感情发展、主角明显的成长或堕落弧线的，分别排成感情线、人物线；没有就不凑数。'));
+  });
+});
+
+describe('threads.ts · 当前进度的【人物】', () => {
+  const card = (name, extra = {}) => ({ name, aliases: [], tags: [], sections: {}, ...extra });
+  const people = (cards, text) => loadModule('src/core/features/threads.ts').progressPeople(cards, text);
+
+  test('写了性别的：主角在前（名字没出现也在），其余名字或别名出现过才列；带别名', () => {
+    const cards = [
+      card('沈青', { gender: '男' }),
+      card('林昭', { gender: '女', tags: ['主角'], aliases: ['小昭'] }),
+      card('李叔', { gender: '男' }),
+      card('阿婆', { aliases: ['婆婆'] }),
+      card('柳', { gender: '女' }),
+    ];
+    const text = '【线】沈家旧案\n原来的当前进度：读者已知他已身处局内，婆婆不肯说，柳树下埋着东西。';
+    assert.deepEqual(people(cards, text), ['- 林昭（女；又称 小昭）']);
+    assert.deepEqual(people(cards, `${text}沈青追问李叔。`), ['- 林昭（女；又称 小昭）', '- 沈青（男）', '- 李叔（男）']);
+    assert.deepEqual(people([], text), []);
   });
 });

@@ -480,6 +480,7 @@ describe('定稿 · 叙事线：认事件、归并、当前进度', () => {
     const progressUser = userOf(PROGRESS_MARK);
     assert.ok(progressUser.includes('【线】林昭与沈青\n种类：感情线\n意图：从互相猜忌到并肩。\n原来的当前进度：两人刚结识，互相提防。'), progressUser);
     assert.ok(!progressUser.includes('林昭与沈青（'), '线名不和种类粘在一起');
+    assert.ok(!progressUser.includes('【人物】'), '没有角色卡就不列');
     assert.ok(!progressUser.includes('断剑之谜'), progressUser);
     assert.deepEqual(outcome.threads.unwritten, []);
   });

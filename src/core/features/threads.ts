@@ -33,12 +33,12 @@ import { collectText } from '../llm/collect';
 import { ModelPool, createModelPool } from '../llm/pool';
 import { CancelledError, StreamOptions } from '../llm/provider';
 import { estimateTokens, takeHead } from '../context/tokenizer';
-import { cardHidden, clipLine } from '../context/layers/render';
+import { cardHidden, cardNote, clipLine } from '../context/layers/render';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
-import { CHARACTER_DETAIL_LIMITS, Chapter } from '../model/types';
+import { CHARACTER_DETAIL_LIMITS, Chapter, CharacterCard } from '../model/types';
 import { LlmProvider } from '../llm/provider';
 import { ONE_CALL, describeCalls } from '../model/pipeline';
 import { isOutlineFilled, outlineBriefs } from '../model/outlineFile';
@@ -715,6 +715,24 @@ async function writeFinds(project: NovelProject, finds: ThreadFinds, no: number,
   }
 }
 
+/** 当前进度那一次最多列几个人。 */
+const PROGRESS_PEOPLE_MAX = 12;
+
+/**
+ * 当前进度那一次的【人物】：写了性别的角色卡里，标着「主角」的，与名字或别名在送去的那几条线里出现过的（两个字以上才认），
+ * 一人一行「- 林昭（女；又称 小昭）」，主角在前、最多 {@link PROGRESS_PEOPLE_MAX} 个。原来的进度里只剩「他」、一个名字都没有时，
+ * 主角也在。
+ */
+export function progressPeople(cards: readonly CharacterCard[], text: string): string[] {
+  const named = (c: CharacterCard): boolean => [c.name, ...c.aliases].some((n) => n.trim().length >= 2 && text.includes(n.trim()));
+  const lead = (c: CharacterCard): boolean => c.tags.includes('主角');
+  return cards
+    .filter((c) => !!c.gender && (lead(c) || named(c)))
+    .sort((a, b) => Number(lead(b)) - Number(lead(a)))
+    .slice(0, PROGRESS_PEOPLE_MAX)
+    .map((c) => `- ${c.name}${cardNote(c)}`);
+}
+
 /**
  * b. 当前进度：本章有实际事件的那几条线，一次写完。照角色卡「当前状态」的做法（第 19 条的例外）：空的或指纹对得上才写，
  * 作者改过的不送去、挂黄 ❗ 在那条线上；已经写到更晚那一章的不回退（重新定稿早前的章时）。写之前那一刻再认一遍归属。
@@ -756,13 +774,17 @@ async function updateProgress(project: NovelProject, chapter: Chapter, out: Thre
       .map((e) => `${e.event.type}${e.event.foreshadowing ? `〈${e.event.foreshadowing}〉` : ''}：${e.event.what}`)
       .join('；');
   // 线名单独一行（试跑：写成「名字（种类）」，模型照抄回来、对不上，22 条只落盘 1 条），种类另起一行。
+  const body = send
+    .map((t) =>
+      [`【线】${t.name}`, `种类：${t.kind}`, `意图：${t.intent || '（没写）'}`, `原来的当前进度：${t.progress || '（空）'}`, `这一章：${mine(t)}`].join('\n')
+    )
+    .join('\n\n');
+  // 谁是男是女（2026-10-24）：这一次不带正文，只有名字的模型默认写「他」，原来的进度错一次就一直错下去。
+  const people = progressPeople(await project.listCharacters().catch(() => []), body);
   const user =
     `【第${no}章 ${chapter.title}】\n\n` +
-    send
-      .map((t) =>
-        [`【线】${t.name}`, `种类：${t.kind}`, `意图：${t.intent || '（没写）'}`, `原来的当前进度：${t.progress || '（空）'}`, `这一章：${mine(t)}`].join('\n')
-      )
-      .join('\n\n') +
+    (people.length > 0 ? `【人物】\n${people.join('\n')}\n\n` : '') +
+    body +
     '\n\n请按要求输出 JSON。';
   out.calls += 1;
   try {

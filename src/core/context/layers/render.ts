@@ -140,8 +140,8 @@ export function clipLine(text: string, max: number): string {
   return chars.length > max ? `${chars.slice(0, max).join('')}…` : one;
 }
 
-/** 名字后面那对括号：性别与别名，「（女；又称 清河）」。两样都没有就是空串。 */
-function cardNote(card: CharacterCard): string {
+/** 名字后面那对括号：性别与别名，「（女；又称 清河）」。两样都没有就是空串。叙事线的当前进度也拿它告诉模型谁是男是女。 */
+export function cardNote(card: Pick<CharacterCard, 'gender' | 'aliases'>): string {
   const parts = [card.gender, card.aliases.length > 0 ? `又称 ${card.aliases.join('、')}` : ''].filter(Boolean);
   return parts.length > 0 ? `（${parts.join('；')}）` : '';
 }
