@@ -278,14 +278,9 @@ button.project-tab.active {
 }
 
 /*
- * 「时间线」组（故事时间，2026-10-24 重做）。第一行历法与起点：点了改，名字那一截就是整句话，让它占满。章行的点按状态着色：
- * 推不出黄、认不出红、没推与推测淡、你定的与正文写明的用强调色——扫一眼看得出哪几章靠不住。
+ * 「时间线」组（故事时间，2026-10-24 重做）。章行的点按状态着色：推不出黄、认不出红、没推与推测淡、你定的与正文写明的用强调色——扫一眼
+ * 看得出哪几章靠不住。（历法与起点那一行同日去掉了：挪到组标题的悬停里，改走右键。）
  */
-.row-timeline-calendar .row-label {
-  flex: 1 1 auto;
-  cursor: pointer;
-}
-
 .timeline-issue {
   padding: 1px 10px 1px 30px;
   color: var(--vscode-editorWarning-foreground, #cca700);

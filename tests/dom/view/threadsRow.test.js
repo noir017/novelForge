@@ -13,7 +13,8 @@
  * | 标题旁「从大纲排出 / 从大纲补充」发 generateThreads、不折叠这一组；没有情节大纲不给 | 按钮不直接花钱，后端先弹确认框 |
  * | 一条线都没有时说清先做什么 | 空页签不该只剩一个标题 |
  * | 叙事线落后于定稿（四期）：最上面一句「⚠ 第 a–b 章还没判」；标题旁与右键「从正文补记」发 backfillThreads，补记在跑时不给 | 拆进来的书、补记停在半路的书一眼看出差多少、从哪补 |
- * | 时间线单独一组排在叙事线前面：起点一行、对账、按月分段（最后一段展开）、一章一行；右键改时间与重推；标题旁补推、重推 | 2026-10-24 重做：作者要它独立成组，能改能重推 |
+ * | 时间线单独一组排在叙事线前面：对账、按月分段（最后一段展开）、一章一行；右键改时间与重推；标题旁补推、重推 | 2026-10-24 重做：作者要它独立成组，能改能重推 |
+ * | 时间线组没有「历法与起点」那一行：在组标题的悬停里，改走右键（起点建议那条 ⚠ 右键「填为起点」）；插件形态点一章、点 ⚠ 打开时间线文件，不开正文 | 同日时间线总览：作者嫌点了就弹设置、点章开正文反人类（独立版打开时间线总览，见 tests/dom/standalone/timelineOverview.test.js） |
  * | 「故事架构」组仍是 x/6 | 叙事线是可选的，不挡路 |
  */
 const { describe, test, before } = require('node:test');
@@ -233,8 +234,8 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
     });
   });
 
-  // 故事时间（2026-10-24）：「时间线」一行排在各条线前面。
-  // 故事时间（2026-10-24；同日重做成叙事线页签里单独一组，设计稿 2026-10-24-story-timeline-rework.md「五」）。
+  // 故事时间（2026-10-24；同日重做成叙事线页签里单独一组，设计稿 2026-10-24-story-timeline-rework.md「五」；同日时间线总览，
+  // docs/design/plans/2026-10-24-timeline-page.md「二」）。这里是插件形态（只有 view.js，没有时间线总览）。
   describe('时间线一组', () => {
     const TL = '.novelforge/threads/时间线.md';
     const chapter = (no, patch = {}) => ({
@@ -260,7 +261,7 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
             relPath: TL,
             exists: true,
             label: '推到第 5 章 · 故事第 12 天（三月十八 夜里）',
-            calendar: { text: '简单历 · 起点 三月初七（第 1 章那一天）', tip: '点这一行改历法与起点。', calendarName: '简单历', start: '三月初七' },
+            calendar: { text: '简单历 · 起点 三月初七（第 1 章那一天）', tip: '右键改历法与起点。', calendarName: '简单历', start: '三月初七' },
             issues: [{ text: '第 4 章：前面推下来是三月十一，正文写三月十四（差 3 天），已按正文对齐', chapter: 4 }],
             segments: [
               { key: 'timeline:二月', label: '二月', detail: '第 1–2 章 · 2 天', chapters: [chapter(1), chapter(2)] },
@@ -287,21 +288,30 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
       assert.match(tlGroup().querySelector('.group-head').textContent, /推到第 5 章 · 故事第 12 天（三月十八 夜里）/);
     });
 
-    test('第一行历法与起点：点了改；有起点建议时右键「填为起点」带上那一天', () => {
+    test('没有「历法与起点」那一行：在组标题的悬停里；组标题右键「改历法与起点…」；起点建议那条 ⚠ 右键「填为起点」带上那一天', () => {
       ui.post({ type: 'project', tree: withTimeline() });
-      const cal = tlGroup().querySelector('.row-timeline-calendar');
-      assert.equal(cal.querySelector('.row-label').textContent, '简单历 · 起点 三月初七（第 1 章那一天）');
+      assert.equal(tlGroup().querySelector('.row-timeline-calendar'), null);
+      assert.ok(!tlRows().some((r) => r.textContent.includes('第 1 章那一天')));
+      assert.equal(tlGroup().querySelector('.group-toggle').title, '简单历 · 起点 三月初七（第 1 章那一天）\n右键改历法与起点。');
       ui.sent.length = 0;
-      ui.clickEl(cal.querySelector('.row-label'));
-      assert.equal(ui.last('projectAction')?.action, 'setTimelineStart', JSON.stringify(ui.sent));
-      const tree = withTimeline({ calendar: { text: '简单历 · 没填起点：…', tip: '', calendarName: '简单历', start: '', suggestion: { start: '三月初五', note: '第 2 章写了「三月初七」' } } });
+      ui.pick(ui.rightClick(tlGroup().querySelector('.group-head')), '改历法与起点…');
+      assert.deepEqual([ui.last('projectAction')?.action, ui.last('projectAction')?.name], ['setTimelineStart', undefined]);
+      const tree = withTimeline({
+        calendar: { text: '简单历 · 没填起点，只显示第几天', tip: '', calendarName: '简单历', start: '', suggestion: { start: '三月初五', note: '第 2 章写了「三月初七」' } },
+        issues: [{ text: '没填起点：第 2 章写了「三月初七」，第 1 章是三月初五（右键填为起点）', start: true }],
+      });
       ui.post({ type: 'project', tree });
       ui.sent.length = 0;
-      ui.pick(ui.rightClick(tlGroup().querySelector('.row-timeline-calendar')), '填为起点「三月初五」（第 2 章写了「三月初七」）');
+      const issue = tlGroup().querySelector('.timeline-issue');
+      ui.pick(ui.rightClick(issue), '填为起点「三月初五」（第 2 章写了「三月初七」）');
       assert.deepEqual([ui.last('projectAction')?.action, ui.last('projectAction')?.name], ['setTimelineStart', '三月初五']);
+      // 组标题右键也有。
+      const items = ui.itemsOf(ui.rightClick(tlGroup().querySelector('.group-head')));
+      assert.ok(items.includes('填为起点「三月初五」（第 2 章写了「三月初七」）'), JSON.stringify(items));
+      ui.closeMenu();
     });
 
-    test('对账一条一行（⚠），点了打开时间线文件；章行上对账报了的另挂一格 ⚠', () => {
+    test('对账一条一行（⚠），点了打开时间线文件（插件形态没有时间线总览）；章行上对账报了的另挂一格 ⚠', () => {
       ui.post({ type: 'project', tree: withTimeline() });
       const issue = tlGroup().querySelector('.timeline-issue');
       assert.equal(issue.textContent, '⚠ 第 4 章：前面推下来是三月十一，正文写三月十四（差 3 天），已按正文对齐');
@@ -329,7 +339,7 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
       ui.clickEl(heads()[1]);
     });
 
-    test('一章一行：状态点、章号章名、那一天 · 比上一章 · 依据；点了打开正文', () => {
+    test('一章一行：状态点、章号章名、那一天 · 比上一章 · 依据；点了打开时间线文件，不开正文（打开正文在右键）', () => {
       ui.post({ type: 'project', tree: withTimeline() });
       const row = chapterRow(4);
       assert.equal(row.querySelector('.dot').textContent, '◆');
@@ -338,6 +348,8 @@ describe('工程页 · 叙事线页签', { skip: JSDOM_SKIP }, () => {
       assert.equal(row.querySelector('.row-detail').textContent, '三月十4 清晨 · +1 天 · 正文写明三月十四');
       ui.sent.length = 0;
       ui.clickEl(row.querySelector('.row-label'));
+      assert.equal(ui.last('openFile')?.path, TL);
+      ui.pick(ui.rightClick(row), '打开这一章');
       assert.equal(ui.last('openFile')?.path, 'chapters/04.md');
     });
 

@@ -33,6 +33,8 @@ interface GroupOptions {
    * （「角色」页空白处右键就能「在此新建角色卡」）。
    */
   panel?: HTMLElement;
+  /** 标题栏的悬停（「时间线」组的历法与起点：2026-10-24 从组里第一行挪上来）。 */
+  tip?: string;
   /** 惰性调用：折叠时不生成行。 */
   build: () => HTMLElement[];
 }
@@ -59,6 +61,9 @@ export function buildGroup(
   toggle.appendChild(caret);
   toggle.appendChild(mk('span', 'group-name', label));
   toggle.appendChild(mk('span', 'meta', description));
+  if (opts.tip) {
+    toggle.title = opts.tip;
+  }
   head.appendChild(toggle);
   if (opts.head) {
     head.appendChild(opts.head);

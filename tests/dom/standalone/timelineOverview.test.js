@@ -15,6 +15,7 @@
  * | 筛选 | 只看有问题的、只看某条线；「N 天后」照留下的重算；定位过来的章被筛掉时放开筛选 |
  * | 定位 | `nf-timeline-command` 带章号：展开、选中 |
  * | 数据 | 别人的 requestId 不认；显示着收到 `state` 停一下再要；还不是工程、还没有一章各说一句 |
+ * | 工程页入口 | 「时间线」组标题旁「总览」、点一章、点带章号的 ⚠ 打开时间线总览（展开那一章），不开正文、不开叙事线总览；叙事线组的「总览」不再因为有时间线才给 |
  */
 const { describe, test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -137,7 +138,7 @@ function harness(opts = {}) {
   const toasts = [];
   ui.window.__nfToast = (m) => toasts.push(m);
   ui.post({ type: 'state', state: viewState() });
-  ui.post({ type: 'project', tree: sampleTree() });
+  ui.post({ type: 'project', tree: opts.tree ?? sampleTree() });
   const { doc, window } = ui;
   const h = {
     ui,
@@ -436,5 +437,67 @@ describe('时间线总览 · 数据', { skip: JSDOM_SKIP }, () => {
     h.respond();
     h.window.dispatchEvent(new h.window.Event('nf-workspace-reset'));
     assert.equal(h.specialTab(), null);
+  });
+});
+
+describe('时间线总览 · 工程页入口', { skip: JSDOM_SKIP }, () => {
+  const chapter = (no) => ({ no, title: `章${no}`, chapterPath: `chapters/00${no}.txt`, state: 'evidence', when: '三月初七', note: '', tip: '', value: '+0 天', machine: true });
+  const withTimeline = (threads = {}) => {
+    const tree = sampleTree();
+    return {
+      ...tree,
+      threads: {
+        ...tree.threads,
+        ...threads,
+        timeline: {
+          relPath: TL,
+          exists: true,
+          label: '推到第 3 章 · 故事第 2 天',
+          calendar: { text: '简单历 · 起点 三月初七（第 1 章那一天）', tip: '右键改历法与起点。', calendarName: '简单历', start: '三月初七' },
+          issues: [{ text: '第 3 章：往回跳了', chapter: 3 }],
+          segments: [{ key: 'timeline:三月', label: '三月', detail: '', chapters: [chapter(1), chapter(2), chapter(3)] }],
+          machine: 3,
+          last: 3,
+        },
+      },
+    };
+  };
+  const tlGroup = (h) => h.doc.querySelector('#projectBody [data-group="timeline"]');
+  const chapterLabel = (h, no) => tlGroup(h).querySelector(`.row-time-chapter[data-chapter="${no}"] .row-label`);
+
+  test('「时间线」组标题旁「总览」打开时间线总览（不是叙事线总览）；组标题右键有「打开时间线总览」', () => {
+    const h = harness({ tree: withTimeline() });
+    const btn = tlGroup(h).querySelector('.timeline-overview-btn');
+    assert.equal(btn?.textContent, '总览');
+    h.ui.clickEl(btn);
+    assert.ok(h.specialTab() && h.shown());
+    assert.equal(h.doc.querySelector('#edTabs .ed-tab-special[data-special="threads-overview"]'), null);
+    const items = h.ui.itemsOf(h.ui.rightClick(tlGroup(h).querySelector('.group-head')));
+    assert.ok(items.includes('打开时间线总览'), JSON.stringify(items));
+    h.ui.closeMenu();
+  });
+
+  test('点一章：打开时间线总览、展开选中那一章；不发 openFile（不开正文）', () => {
+    const h = harness({ tree: withTimeline() });
+    const n = h.ui.sent.length;
+    h.ui.clickEl(chapterLabel(h, 2));
+    assert.ok(!h.sentAfter(n).some((m) => m.type === 'openFile' || m.type === 'openEditor'), JSON.stringify(h.sentAfter(n)));
+    assert.ok(h.shown());
+    h.respond();
+    assert.ok(h.card(2).classList.contains('is-open') && h.card(2).classList.contains('is-selected'));
+  });
+
+  test('点带章号的 ⚠：打开时间线总览、展开那一章', () => {
+    const h = harness({ tree: withTimeline() });
+    h.ui.clickEl(tlGroup(h).querySelector('.timeline-issue'));
+    h.respond();
+    assert.ok(h.card(3).classList.contains('is-open'));
+  });
+
+  test('叙事线组的「总览」只看有没有线与未归属的伏笔，不再因为有时间线才给', () => {
+    const h = harness({ tree: withTimeline({ lines: [], unfiled: undefined }) });
+    const threadsGroup = h.doc.querySelector('#projectBody [data-group="threads"]');
+    assert.equal(threadsGroup.querySelector('.threads-overview-btn'), null);
+    assert.ok(tlGroup(h).querySelector('.timeline-overview-btn'));
   });
 });

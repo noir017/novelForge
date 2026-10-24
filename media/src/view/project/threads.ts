@@ -23,11 +23,15 @@
  *   这时标题旁多一个「从正文补记」（右键标题、页里空白处也有）：逐章走定稿第三步，后端先弹确认框写明章数与次数；补记在跑时
  *   不给（任务名与 features/threadsBackfill.ts 的 `BACKFILL_TASK` 一字不差）。不落后时不给——没有要补的。
  * - **故事时间单独一组「时间线」**（2026-10-24 重做，设计稿 docs/design/plans/2026-10-24-story-timeline-rework.md「五」）：排在叙事线组前面，
- *   {@link buildTimelineRows}。第一行历法与起点（点了改），对账一条一行，章按月分段（最后一段默认展开、其余收起，⚑9）一章一行；点一章
- *   打开正文（⚑10），右键改时间、重推这一章、从这一章起重推。标题旁「补推时间」「重推」「总览」，都先由后端弹确认框。文案后端给。
+ *   {@link buildTimelineRows}。对账一条一行，章按月分段（最后一段默认展开、其余收起，⚑9）一章一行；右键改时间、重推这一章、从这一章起重推。
+ *   标题旁「补推时间」「重推」「总览」，都先由后端弹确认框。文案后端给。
+ * - **同日「时间线总览」**（docs/design/plans/2026-10-24-timeline-page.md「二」，作者嫌原来的点法反人类）：历法与起点那一行去掉，挪到组标题的
+ *   悬停里、改走右键（没填起点有建议、起点认不出的各成一条 ⚠，右键改）；**点一章打开时间线总览、展开这一章**，不再打开正文（推翻上一稿
+ *   ⚑10；打开正文挪到右键）；点一条带章号的 ⚠ 同样定位过去；标题旁「总览」打开时间线总览。插件形态没有内置编辑器（`nf-timeline-query`
+ *   没人回答）：点一章、点 ⚠ 打开时间线文件（⚑8），不给「总览」。
  */
 import { el as mk } from '../../dom';
-import { commandThreadsOverview, queryThreadsOverview } from '../../globals';
+import { commandThreadsOverview, commandTimelineOverview, queryThreadsOverview, queryTimelineOverview } from '../../globals';
 import type { MenuItem } from '../../globals';
 import type { ProjectTree, ThreadLineView, ThreadUnfiledView, TimelineChapterView, TimelineGroupView, TimelineSegmentView } from '../../protocol';
 import { linkBtn } from '../buttons';
@@ -87,10 +91,11 @@ export function threadsGroupLabel(tree: ProjectTree): string {
 }
 
 /**
- * 「叙事线总览」画得了、也有东西可画：有内置编辑器（能力探测，插件形态没有人回答）、至少有一条线或一条未归属的伏笔。
+ * 「叙事线总览」画得了、也有东西可画：有内置编辑器（能力探测，插件形态没有人回答）、至少有一条线或一条未归属的伏笔。时间线不算
+ * （2026-10-24：时间线挪去了自己的「时间线总览」）。
  */
 function canOverview(tree: ProjectTree): boolean {
-  return (tree.threads.lines.length > 0 || !!tree.threads.unfiled || !!tree.threads.timeline?.exists) && queryThreadsOverview();
+  return (tree.threads.lines.length > 0 || !!tree.threads.unfiled) && queryThreadsOverview();
 }
 
 /** 一行右键「在总览里看」：打开编辑区里的叙事线总览，定位到这一行。没有内置编辑器时不给。 */
@@ -210,7 +215,34 @@ export function timelineGroupLabel(tree: ProjectTree): string {
   return tree.threads.timeline?.label ?? '';
 }
 
-/** 时间线组标题与组里空白处的右键：补推、重推、改起点、打开文件、总览。 */
+/** 「时间线」组标题的悬停：历法与起点、历法怎么算（2026-10-24 从组里第一行挪上来）。 */
+export function timelineGroupTip(tree: ProjectTree): string | undefined {
+  const cal = tree.threads.timeline?.calendar;
+  return cal ? `${cal.text}\n${cal.tip}` : undefined;
+}
+
+/** 改历法与起点、填为起点（组标题右键、说起点的那条 ⚠ 右键）。 */
+function startItems(tree: ProjectTree): MenuItem[] {
+  const suggestion = tree.threads.timeline?.calendar.suggestion;
+  return [
+    { label: '改历法与起点…', run: () => projectAction('setTimelineStart') },
+    ...(suggestion ? [{ label: `填为起点「${suggestion.start}」（${suggestion.note}）`, run: () => projectAction('setTimelineStart', undefined, undefined, suggestion.start) }] : []),
+  ];
+}
+
+/**
+ * 点一章、点一条 ⚠：有内置编辑器就打开时间线总览（带章号的展开那一章），没有（插件形态）打开时间线文件（⚑8）。看的是时间，不是正文。
+ */
+function showInTimeline(tree: ProjectTree, chapter?: number): void {
+  const tl = tree.threads.timeline;
+  if (queryTimelineOverview()) {
+    commandTimelineOverview(chapter);
+  } else if (tl?.exists) {
+    openPath(tl.relPath);
+  }
+}
+
+/** 时间线组标题与组里空白处的右键：补推、重推、改历法与起点（填为起点）、打开时间线总览、打开文件。 */
 export function timelineMenuItems(tree: ProjectTree): MenuItem[] {
   const tl = tree.threads.timeline;
   if (!tl) {
@@ -220,9 +252,9 @@ export function timelineMenuItems(tree: ProjectTree): MenuItem[] {
   return [
     ...(canBackfillTime(tree) && !busy ? [{ label: '从正文补推故事时间', run: () => projectAction('backfillTimeline') }] : []),
     ...(canRefreshTime(tree) && !busy ? [{ label: `重推机器写的 ${tl.machine} 行…`, run: () => projectAction('refreshTimeline') }] : []),
-    { label: '改历法与起点…', run: () => projectAction('setTimelineStart') },
+    ...startItems(tree),
+    ...(queryTimelineOverview() ? [{ label: '打开时间线总览', run: () => commandTimelineOverview() }] : []),
     ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
-    ...overviewItems(tree, tl.relPath),
     { sep: true },
   ];
 }
@@ -251,30 +283,39 @@ export function timelineHead(tree: ProjectTree): HTMLElement | undefined {
     btn.title = `机器写的 ${tl.machine} 行照正文重新推一遍（先弹确认框，写明会换掉几行、调用次数）；你定的行一个字不动`;
     box.appendChild(btn);
   }
-  if (canOverview(tree)) {
-    const btn = linkBtn('总览', () => commandThreadsOverview(tl.relPath));
-    btn.classList.add('threads-overview-btn');
-    btn.title = '在编辑区打开叙事线总览：最上面一组就是时间线，一章一格写这一章是哪天';
+  if (queryTimelineOverview()) {
+    const btn = linkBtn('总览', () => commandTimelineOverview());
+    btn.classList.add('timeline-overview-btn');
+    btn.title = '在编辑区打开时间线总览：竖着按故事里的日子排，一章一张卡片——哪天、隔了多久、这一章在各条线上发生了什么、哪里对不上（不调模型）';
     box.appendChild(btn);
   }
   return box.childElementCount > 0 ? box : undefined;
 }
 
 /**
- * 「时间线」组的全部行：历法与起点、对账一条一行、各段（段头 + 一章一行）。`rerender` 是折叠之后重画（同章节页签的卷）。
+ * 「时间线」组的全部行：对账一条一行、各段（段头 + 一章一行）。`rerender` 是折叠之后重画（同章节页签的卷）。历法与起点在组标题的悬停里
+ * （{@link timelineGroupTip}）。
  */
 export function buildTimelineRows(tree: ProjectTree, rerender: () => void): HTMLElement[] {
   const tl = tree.threads.timeline;
   if (!tl) {
     return [];
   }
-  const rows: HTMLElement[] = [buildCalendarRow(tl)];
+  const rows: HTMLElement[] = [];
+  const overview = queryTimelineOverview();
   for (const issue of tl.issues) {
     // 一条一行、不加框（叙事线组的「还没判」是一句话的大框；对账可能有好几条，框起来要占半屏）。
     const row = mk('div', 'timeline-issue', `⚠ ${issue.text}`);
-    if (tl.exists) {
-      row.title = '点击打开时间线（在那里改，或者右键那一章「改时间」）';
-      row.addEventListener('click', () => openPath(tl.relPath));
+    if (overview || tl.exists) {
+      row.title = overview
+        ? issue.chapter !== undefined
+          ? `点击在时间线总览里看第 ${issue.chapter} 章`
+          : '点击打开时间线总览'
+        : '点击打开时间线文件（在那里改，或者右键那一章「改时间」）';
+      row.addEventListener('click', () => showInTimeline(tree, issue.chapter));
+    }
+    if (issue.start) {
+      onContextMenu(row, () => [...startItems(tree), { sep: true }, ...timelineMenuItems(tree), ...baseMenuItems()]);
     }
     rows.push(row);
   }
@@ -293,26 +334,6 @@ export function buildTimelineRows(tree: ProjectTree, rerender: () => void): HTML
     rows.push(emptyRow('时间线里还没有一章。同步时会推这一章的时间；已经同步过的章点标题旁的「补推时间」。'));
   }
   return rows;
-}
-
-/** 第一行：历法与起点。点了改；没起点、正文写明过日子时右键「填为起点」。 */
-function buildCalendarRow(tl: TimelineGroupView): HTMLElement {
-  const row = mk('div', 'row row-thread row-timeline-calendar');
-  row.style.paddingLeft = `${indentOf(0)}px`;
-  row.appendChild(mk('span', 'dot', '◷'));
-  const label = mk('span', 'row-label', tl.calendar.text);
-  label.title = tl.calendar.tip;
-  label.addEventListener('click', () => projectAction('setTimelineStart'));
-  row.appendChild(label);
-  const suggestion = tl.calendar.suggestion;
-  onContextMenu(row, () => [
-    { label: '改历法与起点…', run: () => projectAction('setTimelineStart') },
-    ...(suggestion ? [{ label: `填为起点「${suggestion.start}」（${suggestion.note}）`, run: () => projectAction('setTimelineStart', undefined, undefined, suggestion.start) }] : []),
-    ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
-    { sep: true },
-    ...baseMenuItems(),
-  ]);
-  return row;
 }
 
 /** 一段的段头：`▾ 大衍三年三月 · 第 1–12 章 · 14 天`，点了折叠。 */
@@ -343,7 +364,7 @@ function buildSegmentHead(seg: TimelineSegmentView, open: boolean, last: boolean
   return row;
 }
 
-/** 一章一行：状态点、章号与章名、那一天、比上一章、依据；点了打开正文，右键改时间与重推。 */
+/** 一章一行：状态点、章号与章名、那一天、比上一章、依据；点了在时间线总览里展开这一章（插件形态打开时间线文件），右键改时间与重推、打开正文。 */
 function buildTimeChapterRow(tree: ProjectTree, tl: TimelineGroupView, c: TimelineChapterView): HTMLElement {
   const row = mk('div', `row row-thread row-time-chapter time-${c.state}${c.issue ? ' has-issue' : ''}`);
   row.dataset.chapter = String(c.no);
@@ -352,10 +373,10 @@ function buildTimeChapterRow(tree: ProjectTree, tl: TimelineGroupView, c: Timeli
   dot.title = TIME_STATE[c.state];
   row.appendChild(dot);
   const label = mk('span', 'row-label', `第 ${c.no} 章${c.title ? ` ${c.title}` : ''}`);
-  label.title = [c.tip, c.chapterPath ? '点击打开这一章；右键改时间' : '右键改时间'].join('\n\n');
-  if (c.chapterPath) {
-    const path = c.chapterPath;
-    label.addEventListener('click', (e) => openPath(path, { preview: e.detail < 2 }));
+  const overview = queryTimelineOverview();
+  label.title = [c.tip, overview ? '点击在时间线总览里看这一章；右键改时间、打开正文' : tl.exists ? '点击打开时间线文件；右键改时间、打开正文' : '右键改时间'].join('\n\n');
+  if (overview || tl.exists) {
+    label.addEventListener('click', () => showInTimeline(tree, c.no));
   }
   row.appendChild(label);
   row.appendChild(mk('span', 'meta row-detail', [c.when, c.delta ?? '', c.note].filter(Boolean).join(' · ')));
@@ -370,7 +391,6 @@ function buildTimeChapterRow(tree: ProjectTree, tl: TimelineGroupView, c: Timeli
     { sep: true },
     ...(c.chapterPath ? [{ label: '打开这一章', run: () => openPath(c.chapterPath!) }] : []),
     ...(tl.exists ? [{ label: '打开时间线文件', run: () => openPath(tl.relPath) }] : []),
-    ...overviewItems(tree, tl.relPath),
     { sep: true },
     ...baseMenuItems(),
   ]);
