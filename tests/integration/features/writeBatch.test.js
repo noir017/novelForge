@@ -32,7 +32,7 @@ const finished = [];
 
 const pad3 = (n) => String(n).padStart(3, '0');
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
-const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
+const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.txt`;
 const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
 
 /**
@@ -195,8 +195,9 @@ describe('只写正文：下一可写章起 3 章', () => {
   test('写了 3 章，一章一次，不看并发设置', () => {
     assert.equal(calls, 3);
     assert.deepEqual(fake.calls.map((m) => chapterOf(m).no), [1, 2, 3]);
+    // 正文是 .txt（2026-10-24）：纯文本，不写标题行。
     for (const no of [1, 2, 3]) {
-      assert.ok(t.read(CH(no)).startsWith(`# ${TITLES[no - 1]}\n\n`), CH(no));
+      assert.ok(t.has(CH(no)) && !t.read(CH(no)).startsWith('#'), CH(no));
     }
     assert.ok(!t.has(CH(4)));
   });

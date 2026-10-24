@@ -149,7 +149,8 @@ describe('章节文件规则（磁盘）', () => {
     });
   });
 
-  describe('createChapter 默认仍出 .md', () => {
+  // 2026-10-24 作者定：新建正文一律出 .txt（从前缺省是 .md）；指定 .md 时照旧写标题行。
+  describe('createChapter 默认出 .txt', () => {
     let created;
     let createdHead;
     let txt;
@@ -160,9 +161,9 @@ describe('章节文件规则（磁盘）', () => {
     let bareWords;
 
     before(async () => {
-      created = await wsOf(project).createChapter(9, '新章', '', undefined);
+      created = await wsOf(project).createChapter(9, '新章', '', undefined, '.md');
       createdHead = read(created);
-      txt = await wsOf(project).createChapter(10, '纯文本章', '正文', undefined, '.txt');
+      txt = await wsOf(project).createChapter(10, '纯文本章', '正文', undefined);
       txtBody = read(txt);
       // 流水线新建那条路：还没有标题可言，落成纯序号名。
       bare = await wsOf(project).createChapter(11, '', '', undefined);
@@ -180,7 +181,7 @@ describe('章节文件规则（磁盘）', () => {
       project.invalidate();
     });
 
-    test('文件名带 .md', () => {
+    test('指定 .md 时文件名带 .md', () => {
       assert.equal(created, 'chapters/009-新章.md', created);
     });
 
@@ -188,12 +189,13 @@ describe('章节文件规则（磁盘）', () => {
       assert.ok(createdHead.startsWith('# 新章'), createdHead.slice(0, 20));
     });
 
-    test('指定 .txt 时不写标题行', () => {
+    test('缺省是 .txt，不写标题行', () => {
+      assert.equal(txt, 'chapters/010-纯文本章.txt', txt);
       assert.equal(txtBody, '正文\n', JSON.stringify(txtBody));
     });
 
     test('标题留空时文件名只有序号', () => {
-      assert.equal(bare, 'chapters/011.md', bare);
+      assert.equal(bare, 'chapters/011.txt', bare);
     });
 
     // 不写 `# `：空标题行既没意义，又会让改名时的 H1 同步判据从第一天就对不上。

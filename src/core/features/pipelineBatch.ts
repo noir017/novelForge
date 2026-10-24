@@ -474,7 +474,7 @@ const MODE_LABEL: Record<WriteBatchMode, string> = {
  * ```
  * for 每一章：
  *   写（续写链，与对话页同一个 completeManuscript；一章之内续写那几轮钉住同一个模型）
- *   → 新建 chapters/NNN-标题.md、记 writtenFrom
+ *   → 新建 chapters/NNN-标题.txt、记 writtenFrom
  *   → 写完即审稿：审一遍，报告进「批量审稿」那个会话（五期补遗 §4）
  *   → 写完即定稿：定稿（照正文更新细纲 + 角色状态，features/finalize.ts）
  *   → 作者点过「写完这一章就停」：停

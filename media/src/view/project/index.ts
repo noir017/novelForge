@@ -119,6 +119,8 @@ function buildProjectPage(tree: ProjectTree): void {
         { label: '新建卷…', run: () => projectAction('newFolder', undefined, tree.chaptersRoot) },
         // 整本 txt 放进工程之后切成章（零调用；后端弹框挑文件、报切分结果）。
         { label: '导入原稿（选一本 txt）…', run: () => projectAction('importManuscript') },
+        // 零调用：全部章节拼成一份 txt，写到工程根下的「导出/<书名>.txt」，已有就覆盖（2026-10-24）。
+        { label: '导出全文（txt）', run: () => projectAction('exportBook') },
         { sep: true },
         // 两个批量动作都「只补不改」：已经有产物的章一律跳过。都先开弹窗选区间。
         { label: '批量拆细纲…', run: () => openPlotBatchForm(tree) },

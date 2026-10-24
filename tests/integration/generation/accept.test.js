@@ -417,7 +417,7 @@ describe('面板销毁：卡片作废，产物不落盘', () => {
  * `manuscripts/`，要等作者拆章才进 `chapters/`。
  */
 describe('写正文 → 当场问一句 → 落到同号章节', () => {
-  const CHAPTER = 'chapters/001-夜入青云.md';
+  const CHAPTER = 'chapters/001-夜入青云.txt';
   let r;
   let chapterWhenAsked;
   let again;
@@ -464,10 +464,11 @@ describe('写正文 → 当场问一句 → 落到同号章节', () => {
     assert.match(rewrite.gate.detail, /先对比/);
   });
 
-  test('重写：写入前审阅一次，整章换成新写的，标题行留着', () => {
+  // 正文是 .txt（2026-10-24）：没有标题行，重写也不凭空加。
+  test('重写：写入前审阅一次，整章换成新写的', () => {
     assert.equal(reviewedRewrite, 1);
     const text = t.read(CHAPTER);
-    assert.ok(text.startsWith('# 夜入青云') && text.includes('门开了') && !text.includes('第三盏灯'), text);
+    assert.ok(text.startsWith('门开了') && !text.includes('第三盏灯'), text);
   });
 
   test('卡片说得出是多少字的正文', () => {

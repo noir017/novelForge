@@ -330,7 +330,7 @@ describe('正文 · 落盘时在细纲上记 writtenFrom', () => {
   });
 
   test('正文落在同号的章节上', () => {
-    assert.equal(chapterRel, 'chapters/012-入宗.md', chapterRel);
+    assert.equal(chapterRel, 'chapters/012-入宗.txt', chapterRel);
   });
 
   test('记上了', () => {
@@ -760,7 +760,7 @@ describe('章节 · 同名一律报错退出，manifest 跟着同步', () => {
   });
 
   test('落在 chapters/ 下，带三位序号', () => {
-    assert.equal(created, 'chapters/001-楔子.md', created);
+    assert.equal(created, 'chapters/001-楔子.txt', created);
   });
 
   test('同名一律报错退出，不覆盖', async () => {
@@ -787,7 +787,7 @@ describe('章节 · 一次新建好几章', () => {
       { order: 41, title: '甲', content: '第四十一章。' },
       { order: 42, title: '', content: '第四十二章。' },
     ]);
-    t.write('chapters/044-丁.md', '# 丁\n\n作者先放的。\n');
+    t.write('chapters/044-丁.txt', '作者先放的。\n');
     project.invalidate();
     try {
       await ws.createChapters([
@@ -801,20 +801,21 @@ describe('章节 · 一次新建好几章', () => {
   });
 
   test('一章一个文件，规则与 createChapter 一样', () => {
-    assert.deepEqual(made, ['chapters/041-甲.md', 'chapters/042.md']);
-    assert.equal(t.read('chapters/041-甲.md'), '# 甲\n\n第四十一章。\n');
-    assert.equal(t.read('chapters/042.md'), '第四十二章。\n');
+    assert.deepEqual(made, ['chapters/041-甲.txt', 'chapters/042.txt']);
+    // 正文是 .txt（2026-10-24）：纯文本不写标题行。
+    assert.equal(t.read('chapters/041-甲.txt'), '第四十一章。\n');
+    assert.equal(t.read('chapters/042.txt'), '第四十二章。\n');
   });
 
   test('撞了同名报错退出，不覆盖、不往下写', () => {
     assert.equal(err?.code, 'exists');
-    assert.ok(!t.read('chapters/044-丁.md').includes('不该写进去'));
-    assert.ok(!t.has('chapters/045-戊.md'));
+    assert.ok(!t.read('chapters/044-丁.txt').includes('不该写进去'));
+    assert.ok(!t.has('chapters/045-戊.txt'));
   });
 
   test('manifest 同步到写好的每一章（包括报错之前那一章）', async () => {
     const files = (await project.readManifest()).chapters.map((c) => c.file);
-    for (const rel of ['chapters/041-甲.md', 'chapters/042.md', 'chapters/043-丙.md']) {
+    for (const rel of ['chapters/041-甲.txt', 'chapters/042.txt', 'chapters/043-丙.txt']) {
       assert.ok(files.includes(rel), rel);
     }
   });
@@ -854,7 +855,7 @@ describe('细纲改标题 · 有正文时文件名跟着正文不动，定稿的
   });
 
   test('章节没被改名', () => {
-    assert.ok(t.has('chapters/012-入宗.md'));
+    assert.ok(t.has('chapters/012-入宗.txt'));
   });
 
   test('定稿记的 sourceHash 留着', () => {
@@ -868,7 +869,7 @@ describe('细纲改标题 · 有正文时文件名跟着正文不动，定稿的
   });
 
   test('细纲与正文按路径认到一起', () => {
-    assert.equal(renamed.chapter.relPath, 'chapters/012-入宗.md', JSON.stringify(renamed.chapter));
+    assert.equal(renamed.chapter.relPath, 'chapters/012-入宗.txt', JSON.stringify(renamed.chapter));
   });
 });
 
@@ -893,7 +894,7 @@ describe('删细纲 · 不碰 chapters/', () => {
   // 那是已经写出来的正文。删掉细纲只是放弃这一章的规划稿（定稿过的话连同档案），
   // 不该顺手把正文一起带走。
   test('chapters/ 里的正文没被动', () => {
-    assert.ok(t.has('chapters/012-入宗.md'));
+    assert.ok(t.has('chapters/012-入宗.txt'));
   });
 
   test('删已经删掉的返回 false，不抛', () => {

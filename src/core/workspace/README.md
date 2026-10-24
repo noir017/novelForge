@@ -354,8 +354,9 @@ workspace/
 | `restampPlotChain(rel, patch)` | 细纲路径（只改 frontmatter 里给出的指纹键：`upstreamHash` / `writtenFrom` / `sourceHash`，值为空就删掉这个键；别的键与正文一个字节不动，不存历史版本，没有 frontmatter 的手写细纲不补）。只给全书替换的指纹链收尾用（第 18 条，`features/bookReplace.ts`）：同一次里细纲与正文都改了、原本对得上的，`writtenFrom` / `sourceHash` 刷成替换后的；细纲的 `upstreamHash` 退回替换前的判断——`write` 写细纲时总是记下大纲此刻的指纹（「谁写都记」），这一次替换不该顺手把本来挂着的 ⟳ 擦掉、也不该把没记过的手写细纲拉进链 |
 | `patchPlotLore` | 细纲路径（只换「设定」一节，没有就加在末尾，另外七节与 frontmatter 一个字不动；单独记设定、补记用。「设定」一节不进内容指纹，正文不会因此挂 ⟳） |
 | `restoreBytes(rel, bytes, { baseHash?, absent? })` | 调用方给的路径（存档点的退回，`features/checkpoint.ts`）。**字节原样**写回，不跑 handler（不渲染、不记账：细纲的指纹一起回到当时，第 18 条；章节的 manifest 由调用方最后同步一次）；不弹覆盖审阅（面板上点两下就是那一问）。守卫照过：越界、写不进去的三处、大小上限、乐观锁（`absent`：当时磁盘上没有，这期间又建出来报 `exists`）；覆盖之前存一版历史（跳过节流）；父目录不在就补齐 |
-| `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像 |
-| `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.md`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
+| `createChapter` / `ensureDraft` | 章号 + 标题 / 章节路径的镜像。新建正文一律出 `.txt`（2026-10-24，不写标题行） |
+| `writeExport(rel, text)` | 调用方给的路径（导出全文，`features/exportBook.ts`：`导出/<书名>.txt`）。照章节现拼的副本，不是作者的产物：**不过 2MB 上限**（一本书动辄几 MB）、不审阅、不存历史、不跑 handler，已有就整份覆盖；越界与写不进去的三处照常拦 |
+| `createChapterAt(rel, content, plotRelPath)` | 调用方给的路径（照细纲写正文时由 `views/pipeline.ts` 的 `chapterTargetOf` 算：细纲所在的子目录）。细纲路径与新正文的镜像对不上（纯序号的 `030.md`、正文按标题落成 `030-雪夜.txt`）就把细纲改名过去；镜像位置已有文件时不动、记 warn |
 | `createChapters(items)` | 同 `createChapter`，一次好几章（导入原稿）：每章照样过 `write`（同名报错退出、大小上限），只是 chapter handler 的 manifest 同步**延到最后做一次**（`WriteOptions.deferAfter`，只对章节生效）——逐章重扫全部章节是 O(n²) 次读盘，三百章十几秒。撞了同名就抛，前面写好的留着、manifest 照样同步 |
 | `finalizePlot` | 章节：正文镜像的那一份细纲，没有就在镜像位置新建（见上一节「定稿写回」） |
 | `writeCharacter` / `writeLore` | slug（可带子目录） |

@@ -58,6 +58,8 @@ const NOVEL_DIR = '.novelforge';
 /** 0.1.x 用的目录名。检测到就提示迁移，不静默改动用户文件。 */
 const LEGACY_NOVEL_DIR = '.novel';
 const MANIFEST_FILE = 'project.json';
+/** 导出全文的目录名（工程根下）。 */
+const EXPORT_DIR = '导出';
 
 /** 递归扫描的深度上限。防御性的：正常工程不会有这么深的卷/册嵌套。 */
 const MAX_TREE_DEPTH = 8;
@@ -138,6 +140,14 @@ export class NovelProject {
    */
   get draftsDir(): string {
     return path.join(this.root, this.config.draftsDir);
+  }
+
+  /**
+   * 导出全文的落点（`features/exportBook.ts`，2026-10-24）：工程根下的 `导出/`，一本书一份 `<书名>.txt`。不是固定目录，
+   * 用到才建；不扫章节、不进「导入原稿」的清单——导出的那份是照章节现拼的副本。
+   */
+  get exportDir(): string {
+    return path.join(this.root, EXPORT_DIR);
   }
 
   get novelDir(): string {
@@ -341,8 +351,8 @@ export class NovelProject {
   }
 
   /**
-   * 细纲 → 照它写出来的正文该叫什么（{@link plotPathForChapter} 的逆运算，扩展名 `.md`）：
-   *   `.novelforge/summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.md`
+   * 细纲 → 照它写出来的正文该叫什么（{@link plotPathForChapter} 的逆运算，扩展名 `.txt`：正文一律出纯文本，2026-10-24 作者定的）：
+   *   `.novelforge/summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.txt`
    * 不在 `summaries/` 下的路径给 undefined。纯计算，不碰磁盘。
    */
   chapterPathForPlot(plotRelPath: string): string | undefined {
@@ -351,7 +361,7 @@ export class NovelProject {
       return undefined;
     }
     const parsed = path.posix.parse(under.replace(/\\/g, '/'));
-    return this.relPath(path.join(this.chaptersDir, parsed.dir, `${parsed.name}.md`));
+    return this.relPath(path.join(this.chaptersDir, parsed.dir, `${parsed.name}.txt`));
   }
 
   /**
@@ -590,10 +600,10 @@ export class NovelProject {
    *
    * `drafts/` 正常情况下是 `chapters/` 的兄弟，本来就扫不到；这里是
    * `chaptersDir` 被配成 `.` 或空串时的唯一防线——那时草稿会落进章节根，
-   * 每份草稿都会变成一章。
+   * 每份草稿都会变成一章。导出全文的 `导出/` 同理（书名是数字开头的，那份导出就成了一章）。
    */
   private chapterSkipDirs(): ReadonlySet<string> {
-    return new Set([this.draftsDir]);
+    return new Set([this.draftsDir, this.exportDir]);
   }
 
   async getChapter(order: number): Promise<Chapter | undefined> {
@@ -612,14 +622,14 @@ export class NovelProject {
   }
 
   /**
-   * 工程里能拿来拆的整本 txt（导入原稿、从参考书学写法）：`.txt`，**章节文件与草稿除外**，按路径排序。
+   * 工程里能拿来拆的整本 txt（导入原稿、从参考书学写法）：`.txt`，**章节文件、草稿与导出的全文除外**，按路径排序。
    * 隐藏目录照例不扫（`.novelforge/` 里没有作者要导入的东西）。只列路径与大小，不读内容。
    */
   async listImportableTexts(): Promise<{ relPath: string; bytes: number }[]> {
     const chaptersRoot = path.resolve(this.chaptersDir);
     const isTxt = (name: string) => path.extname(name).toLowerCase() === '.txt';
     const out: { relPath: string; bytes: number }[] = [];
-    for (const abs of await listFilesDeep(this.root, isTxt, new Set([this.draftsDir]))) {
+    for (const abs of await listFilesDeep(this.root, isTxt, new Set([this.draftsDir, this.exportDir]))) {
       const back = path.relative(chaptersRoot, abs);
       const inChapters = !back.startsWith('..') && !path.isAbsolute(back);
       if (inChapters && isChapterFileName(path.basename(abs))) {

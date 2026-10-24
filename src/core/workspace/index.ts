@@ -1034,10 +1034,10 @@ export class Workspace {
    * 新建章节文件，返回工作区相对路径。
    *
    * `dir` 是工作区相对的落点目录（如 `chapters/第一卷`），缺省落在 chapters/ 根下。
-   * `ext` 默认 `.md`：扫描时认任意扩展名，但插件自己建的东西仍然出 markdown。
+   * `ext` 默认 `.txt`：正文一律出纯文本（2026-10-24 作者定的，从前是 `.md`）；扫描时认任意扩展名。
    * 非 markdown 家族不写标题行。
    *
-   * **`title` 留空是合法的**，落成纯序号名 `001.md`（细纲还没起标题的章就是
+   * **`title` 留空是合法的**，落成纯序号名 `001.txt`（细纲还没起标题的章就是
    * 这个样子，标题等作者自己改）。
    *
    * 标题行写的是**清洗后**的词干而不是原样 `title`：两者一致，改名时
@@ -1049,7 +1049,7 @@ export class Workspace {
     title: string,
     content = '',
     dir?: string,
-    ext = '.md'
+    ext = '.txt'
   ): Promise<string> {
     const { rel, text } = this.chapterFileOf(order, title, content, dir, ext);
 
@@ -1063,7 +1063,7 @@ export class Workspace {
    * `chapterTargetOf` 给（细纲所在的子目录）。标题行取文件名里的词干，与 {@link createChapter} 同一个规矩。
    *
    * `plotRelPath` 是这一章照着写的细纲。它的路径与新正文的镜像对不上（细纲是还没起名时建的
-   * `030.md`，正文按标题落成了 `030-雪夜.md`）就把细纲改名过去——细纲镜像正文的路径，不改的话
+   * `030.md`，正文按标题落成了 `030-雪夜.txt`）就把细纲改名过去——细纲镜像正文的路径，不改的话
    * 正文一落盘，这一章就「没有细纲」了。镜像位置已有别的文件时不动（不静默覆盖），记一条 warn。
    */
   async createChapterAt(rel: string, content = '', plotRelPath?: string): Promise<string> {
@@ -1113,7 +1113,7 @@ export class Workspace {
   }
 
   /** 新建章节的落点与内容（标题行规则见 {@link createChapter}）。 */
-  private chapterFileOf(order: number, title: string, content: string, dir?: string, ext = '.md'): { rel: string; text: string } {
+  private chapterFileOf(order: number, title: string, content: string, dir?: string, ext = '.txt'): { rel: string; text: string } {
     const stem = safeStem(title);
     const fileName = stem ? `${pad3(order)}-${stem}${ext}` : `${pad3(order)}${ext}`;
     const parent = dir ? normalizeRel(dir) : this.project.relPath(this.project.chaptersDir);
@@ -1142,6 +1142,26 @@ export class Workspace {
       await writeText(abs, isMarkdownPath(rel) ? `# ${chapter.title} · 草稿\n\n` : '');
     }
     return rel;
+  }
+
+  /**
+   * 导出全文（`features/exportBook.ts`，2026-10-24）：整份写到 `rel`，已有就直接覆盖，返回规范化后的路径。
+   *
+   * 与 {@link write} 不一样的地方都因为它是**照章节现拼出来的副本**，不是作者的产物：
+   * - **不过 2MB 上限**：一本书动辄几 MB（百万字约 3MB），这份文件也不进编辑器、不进上下文；
+   * - **不审阅、不存历史**：每次导出整份重拼，盖掉的只是上一次导出（作者选的「重复导出直接覆盖」）；
+   * - **不跑 handler**：落在 `导出/`，不在任何一条链上，没有记账与伴生。
+   *
+   * 越界、内部文件、回收站、历史版本照常拦（`guardWrite`）。
+   */
+  async writeExport(rel: string, text: string): Promise<string> {
+    const normalized = normalizeRel(rel);
+    if (normalized === undefined) {
+      throw new WsError('outOfRoot', `路径超出工程目录：${rel}`);
+    }
+    const guarded = await guardWrite(this.project, normalized, { mode: 'overwrite' });
+    await writeText(guarded.abs, text);
+    return normalized;
   }
 
   /**

@@ -102,7 +102,7 @@ function manuscript(no) {
     return { text: filler(600, 201), stop: 'maxTokens' };
   }
   // 第 3 章开头把第 2 章的结尾又演了一遍。
-  const ch2 = t.read('chapters/002-令牌.md').trim();
+  const ch2 = t.read('chapters/002-令牌.txt').trim();
   return { text: `${ch2.slice(-160)}\n\n${filler(900, 301)}`, stop: 'end' };
 }
 
@@ -319,13 +319,15 @@ describe('三期验收：一句话 → 写完前 3 章', () => {
 
   test('三章都落在 chapters/，标题取细纲的，正文写了进去', async () => {
     const chapters = await project.listChapters();
-    assert.deepEqual(chapters.map((c) => c.relPath), ['chapters/001-停舟.md', 'chapters/002-令牌.md', 'chapters/003-夜访.md']);
-    assert.ok(t.read('chapters/001-停舟.md').startsWith('# 停舟\n\n'));
-    assert.ok(t.read('chapters/001-停舟.md').includes(filler(900, 101)));
+    // 正文是 .txt（2026-10-24）：标题只在文件名里，不写标题行。
+    assert.deepEqual(chapters.map((c) => c.relPath), ['chapters/001-停舟.txt', 'chapters/002-令牌.txt', 'chapters/003-夜访.txt']);
+    assert.deepEqual(chapters.map((c) => c.title), ['停舟', '令牌', '夜访']);
+    assert.ok(!t.read('chapters/001-停舟.txt').startsWith('#'));
+    assert.ok(t.read('chapters/001-停舟.txt').includes(filler(900, 101)));
   });
 
   test('第 2 章：截断后续写的那一轮拼在后面', () => {
-    const text = t.read('chapters/002-令牌.md');
+    const text = t.read('chapters/002-令牌.txt');
     assert.ok(text.includes(`${filler(600, 201)}\n\n${filler(500, 202)}`), text.slice(0, 80));
     assert.match(gates[9].detail, /1100 \/ 1000 字 · 已达标/);
     assert.match(gates[9].detail, /这一轮一共调了 2 次模型（续写 1 轮）/);

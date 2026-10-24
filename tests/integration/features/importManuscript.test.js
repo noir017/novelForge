@@ -117,12 +117,13 @@ describe('导入原稿 · 切章落盘', () => {
     assert.match(confirm.detail, /2 个标题下面没有正文（多半是目录），跳过/);
   });
 
-  test('一章一个文件，标题进文件名，一段一行', () => {
+  // 正文一律出 .txt（2026-10-24），纯文本不写标题行：标题只在文件名里。
+  test('一章一个 .txt，标题进文件名，一段一行', () => {
     assert.deepEqual(r, { imported: 3, calls: 0 });
-    assert.equal(t.read('chapters/001-入宗.md'), '# 入宗\n\n林昭站在山门前。\n\n“你来晚了。”沈青说。\n');
-    assert.equal(t.read('chapters/002-雪夜.md'), '# 雪夜\n\n雪下了一夜。\n');
-    // 「第三章」一行没有章名：纯序号名，不写标题行。
-    assert.equal(t.read('chapters/003.md'), '天亮了，林昭下山。\n');
+    assert.equal(t.read('chapters/001-入宗.txt'), '林昭站在山门前。\n\n“你来晚了。”沈青说。\n');
+    assert.equal(t.read('chapters/002-雪夜.txt'), '雪下了一夜。\n');
+    // 「第三章」一行没有章名：纯序号名。
+    assert.equal(t.read('chapters/003.txt'), '天亮了，林昭下山。\n');
     // 原 txt 不动。
     assert.equal(t.read('原稿.txt'), BOOK);
   });
@@ -150,7 +151,7 @@ describe('导入原稿 · 边角', () => {
     assert.equal(r.imported, 1);
     assert.match(h.confirms[0].message, /导入为第 2 章/);
     assert.match(h.confirms[0].detail, /工程里已经有 1 章，接在第 1 章之后/);
-    assert.equal(t.read('chapters/002-新的.md'), '# 新的\n\n新写的一章。\n');
+    assert.equal(t.read('chapters/002-新的.txt'), '新写的一章。\n');
     assert.equal(t.read('chapters/001-旧稿.md'), '# 旧稿\n\n作者早先写的。\n');
   });
 
@@ -176,7 +177,7 @@ describe('导入原稿 · 边角', () => {
     const r = await bundle.importer.importManuscript(t.project);
     assert.equal(r.imported, 1);
     assert.match(h.confirms[0].detail, /GBK/);
-    assert.equal(t.read('chapters/001-雪夜.md'), '# 雪夜\n\n雪下了一夜。\n');
+    assert.equal(t.read('chapters/001-雪夜.txt'), '雪下了一夜。\n');
   });
 
   test('作者取消：一个文件都不写', async () => {

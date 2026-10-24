@@ -99,7 +99,7 @@ describe('新章的落点：默认进最新的一卷', () => {
   });
 
   test('「新建章节文件」不给落点也进最新的一卷，细纲跟着镜像', () => {
-    assert.equal(results.chapter, 'chapters/第二卷/003-雪夜.md');
+    assert.equal(results.chapter, 'chapters/第二卷/003-雪夜.txt');
     assert.equal(results.plotOfChapter, '.novelforge/summaries/第二卷/003-雪夜.md');
   });
 

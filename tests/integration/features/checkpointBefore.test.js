@@ -117,7 +117,7 @@ describe('checkpointBefore 本身', () => {
 
 const TITLES = ['停舟', '令牌', '夜访'];
 const pad3 = (n) => String(n).padStart(3, '0');
-const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
+const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.txt`;
 const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
 
 /** 排好前 3 章细纲（计划）的工程，还没有正文。 */

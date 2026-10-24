@@ -26,7 +26,7 @@ let h;
 let ctx;
 
 const PLOT_REL = '.novelforge/summaries/001-夜入青云.md';
-const CHAPTER_REL = 'chapters/001-夜入青云.md';
+const CHAPTER_REL = 'chapters/001-夜入青云.txt';
 const NOTE_REL = '.novelforge/lore/门派.md';
 
 const tool = () => bundle.tools.NOVEL_TOOLS.find((x) => x.name === 'edit');

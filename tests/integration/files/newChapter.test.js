@@ -1,7 +1,7 @@
 /**
  * 工程页「新建章节文件」：先问章节名称，正文建出来的同时配好细纲（`actions.ts` 的 `newChapterFlow`）。
  *
- * - 取消就什么都不建；留空照旧是纯序号名。
+ * - 取消就什么都不建；留空照旧是纯序号名。正文是 `.txt`（2026-10-24），细纲照旧是 `.md`。
  * - 这一章还没有细纲：在正文的镜像位置建一份空骨架，标题就是这个名字，没有上游指纹，还算「没拆细纲」。
  * - 这一章已经排好了细纲：名字先填它的标题，正文落进它所在的子目录，不另建一份；名字改了，细纲跟着新正文改名、
  *   改标题，作者在细纲里手加的东西一个字不丢。
@@ -84,9 +84,10 @@ describe('新建章节文件：先问名字、配上细纲', () => {
       assert.equal(ask?.value, '');
     });
 
-    test('正文按名字建出来，带标题行', () => {
-      assert.equal(rel, 'chapters/002-夜入-青云.md');
-      assert.equal(body, '# 夜入-青云\n\n\n');
+    // 2026-10-24 作者定：新建章节文件默认 .txt，纯文本不写标题行（标题从文件名取）。
+    test('正文按名字建出来，是 .txt、不带标题行', () => {
+      assert.equal(rel, 'chapters/002-夜入-青云.txt');
+      assert.equal(body, '\n');
     });
 
     test('细纲建在正文的镜像位置，按路径配得上', () => {
@@ -119,7 +120,7 @@ describe('新建章节文件：先问名字、配上细纲', () => {
     });
 
     test('正文是纯序号名', () => {
-      assert.equal(rel, 'chapters/003.md');
+      assert.equal(rel, 'chapters/003.txt');
     });
 
     test('细纲也建了', () => {
@@ -165,8 +166,8 @@ describe('新建章节文件：先问名字、配上细纲', () => {
     });
 
     test('正文落进细纲所在的子目录', () => {
-      assert.equal(same, 'chapters/第二卷/004-雪夜.md');
-      assert.equal(renamed, 'chapters/第二卷/005-夜行.md');
+      assert.equal(same, 'chapters/第二卷/004-雪夜.txt');
+      assert.equal(renamed, 'chapters/第二卷/005-夜行.txt');
     });
 
     test('名字没改：细纲一个字节不动，也不另建一份', () => {

@@ -1,7 +1,7 @@
 /**
  * 拆书的纯函数：一整本 txt → 一章一份。**零 I/O、绝不抛**（第 1 条：作者给什么都不崩）。
  *
- * 两条路共用：「导入原稿」把作者自己的稿子切成 `chapters/NNN-标题.md`；「从参考书学写法」
+ * 两条路共用：「导入原稿」把作者自己的稿子切成 `chapters/NNN-标题.txt`；「从参考书学写法」
  * 把别人的书切开、抽几章样章（features/importManuscript.ts、features/reference.ts）。
  *
  * 借鉴 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）的导入：上游切章只认三条正则

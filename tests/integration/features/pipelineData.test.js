@@ -117,7 +117,7 @@ describe('数据层 · 目录与路径规则', () => {
   });
 
   test('细纲 → 照它写出来的正文：反推回章节根', () => {
-    assert.equal(project.chapterPathForPlot('.novelforge/summaries/第二卷/010-雪夜.md'), 'chapters/第二卷/010-雪夜.md');
+    assert.equal(project.chapterPathForPlot('.novelforge/summaries/第二卷/010-雪夜.md'), 'chapters/第二卷/010-雪夜.txt');
     assert.equal(project.chapterPathForPlot('chapters/010-雪夜.md'), undefined);
   });
 
@@ -407,7 +407,7 @@ describe('数据层 · 给未命名的细纲起名', () => {
 
   // 正文照细纲的路径反推着落：落盘之后镜像回去正好是这一份。
   test('写正文时落在细纲反推出来的位置', () => {
-    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/030-风起.md' });
+    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/030-风起.txt' });
   });
 
   test('流水线这一行的标题取细纲的', () => {
@@ -885,19 +885,19 @@ describe('全书事实 · 从空工程一路推到在写', () => {
       assert.deepEqual({ exists: dest.exists, rel: dest.rel, no: dest.no }, { exists: true, rel: 'chapters/003.md', no: 3 });
     });
 
-    test('还没有就是 chapters/NNN-<细纲标题>.md', async () => {
+    test('还没有就是 chapters/NNN-<细纲标题>.txt', async () => {
       await wsOf(pr).writePlot(writable(5, '客栈里的女人'));
       const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/005-客栈里的女人.md');
       assert.deepEqual(
         { exists: dest.exists, rel: dest.rel, title: dest.title },
-        { exists: false, rel: 'chapters/005-客栈里的女人.md', title: '客栈里的女人' }
+        { exists: false, rel: 'chapters/005-客栈里的女人.txt', title: '客栈里的女人' }
       );
     });
 
     test('细纲没有标题时落成纯序号名', async () => {
       await wsOf(pr).writePlot(writable(6, ''));
       const dest = await bundle.pipe.chapterTargetOf(pr, '.novelforge/summaries/006.md');
-      assert.equal(dest.rel, 'chapters/006.md');
+      assert.equal(dest.rel, 'chapters/006.txt');
     });
 
     test('认不出章号时抛错，而不是乱落', async () => {
@@ -1128,7 +1128,7 @@ describe('细纲镜像正文的相对路径', () => {
   });
 
   test('照它写正文时，正文也落进那个子目录', () => {
-    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/第二卷/051-冰河.md' });
+    assert.deepEqual({ exists: dest.exists, rel: dest.rel }, { exists: false, rel: 'chapters/第二卷/051-冰河.txt' });
   });
 
   test('还没有细纲的新一章，落点也跟上一章走', async () => {

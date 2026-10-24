@@ -33,7 +33,7 @@ let fake;
 
 const P1 = '.novelforge/summaries/001-夜入青云.md';
 const P2 = '.novelforge/summaries/002-客栈.md';
-const CH1 = 'chapters/001-夜入青云.md';
+const CH1 = 'chapters/001-夜入青云.txt';
 
 before(async () => {
   bundle = loadBundle({
@@ -164,7 +164,7 @@ describe('openChapter', () => {
 describe('openChapter：没有细纲按模板建、旁边开哪一份跟上一次走', () => {
   const CH4 = 'chapters/004-远行.md';
   const P4 = '.novelforge/summaries/004-远行.md';
-  const D1 = 'drafts/001-夜入青云.md';
+  const D1 = 'drafts/001-夜入青云.txt';
   const D4 = 'drafts/004-远行.md';
   const results = {};
 

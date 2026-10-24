@@ -6,7 +6,7 @@
  * 1. **确认框照弹**——作者不同意就一次模型都不调，且回给模型的话要说清
  *    「不要重试同一个动作」。
  * 2. **预计次数报给调用方记账**：弹窗写着 N 次、账上记 1 次，正是第 4 条要防的。
- * 3. **批量写正文走既有流程**：正文直接落同号的 `chapters/NNN-标题.md`（一章一纲，
+ * 3. **批量写正文走既有流程**：正文直接落同号的 `chapters/NNN-标题.txt`（一章一纲，
  *    没有中转站），并在细纲上记 `writtenFrom`——这正是「不要自己用 write 拼」的理由。
  * 4. **区间与模式**：`from` / `to` / `mode` / `review` 转给批量写章并写进确认框与动手前那一问；
  *    只给 `from` 按缺省章数往后数；参数不对当场报错，不弹框、不花钱。
@@ -33,8 +33,8 @@ let reports;
 let settings;
 
 const PLOT1 = '.novelforge/summaries/001-夜入青云.md';
-const CH1 = 'chapters/001-夜入青云.md';
-const CH2 = 'chapters/002-藏书阁.md';
+const CH1 = 'chapters/001-夜入青云.txt';
+const CH2 = 'chapters/002-藏书阁.txt';
 
 /** 细纲层的应答：按契约里写的区间给一批蓝图（「chapterNumber 必须覆盖第 1–2 章的每一章」）。 */
 function plotReply(messages) {

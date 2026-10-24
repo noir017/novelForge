@@ -36,7 +36,7 @@ let controller;
 
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const pad3 = (n) => String(n).padStart(3, '0');
-const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
+const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.txt`;
 const THREADS = '.novelforge/threads';
 const MAIN = `${THREADS}/青崖旧案.md`;
 const LEDGER = `${THREADS}/名册之谜.md`;

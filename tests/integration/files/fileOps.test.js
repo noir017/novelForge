@@ -359,7 +359,7 @@ describe('fileOps.ts', () => {
     });
 
     test('章节建到指定目录，名字留空就只有序号', () => {
-      assert.equal(chapterPath, 'chapters/第三卷/004.md', chapterPath);
+      assert.equal(chapterPath, 'chapters/第三卷/004.txt', chapterPath);
     });
 
     test('新建先弹一次名字输入框', () => {
@@ -393,11 +393,11 @@ describe('fileOps.ts', () => {
     });
 
     test('落点越界的章节退回 chapters/', () => {
-      assert.equal(escaped, 'chapters/005.md', escaped);
+      assert.equal(escaped, 'chapters/005.txt', escaped);
     });
 
     test('落点跨区的章节退回 chapters/', () => {
-      assert.equal(crossed, 'chapters/006.md', crossed);
+      assert.equal(crossed, 'chapters/006.txt', crossed);
     });
   });
 
@@ -425,7 +425,7 @@ describe('fileOps.ts', () => {
     before(async () => {
       // 纯序号名（新建出来的样子）第一次命名：序号后面没有分隔符，得补一个 `-`。
       h.expect('新的一章');
-      renamed = await fileOps.renameEntry(project, 'chapters/第三卷/004.md');
+      renamed = await fileOps.renameEntry(project, 'chapters/第三卷/004.txt');
       renamedBody = read(renamed);
       project.invalidate();
       const named = (await project.listChapters()).find((c) => c.relPath === renamed);
@@ -479,7 +479,7 @@ describe('fileOps.ts', () => {
     });
 
     test('纯序号名改名补上分隔符', () => {
-      assert.equal(renamed, 'chapters/第三卷/004-新的一章.md', renamed);
+      assert.equal(renamed, 'chapters/第三卷/004-新的一章.txt', renamed);
     });
 
     // 本来没有 H1 的章节**不该被凭空塞进一行**：那会改动正文，contentHash
@@ -494,7 +494,7 @@ describe('fileOps.ts', () => {
     });
 
     test('保留序号前缀', () => {
-      assert.equal(renamedAgain, 'chapters/第三卷/004-新的一章改名.md', renamedAgain);
+      assert.equal(renamedAgain, 'chapters/第三卷/004-新的一章改名.txt', renamedAgain);
     });
 
     test('没有 H1 时不会凭空补出一行', () => {

@@ -19,6 +19,7 @@ import { recordLore } from '../features/loreRecord';
 import { completeSettings, generatePlots, writeManuscripts } from '../features/pipelineBatch';
 import { extractStyle } from '../features/style';
 import { importManuscript } from '../features/importManuscript';
+import { exportBookText } from '../features/exportBook';
 import { deriveFromText } from '../features/derive';
 import { explainChapterGap } from '../features/chapterGap';
 import { learnFromReference } from '../features/reference';
@@ -209,6 +210,9 @@ export async function projectAction(
       break;
     case 'importManuscript':
       await importManuscript(c.project);
+      break;
+    case 'exportBook':
+      await exportBookText(c.project);
       break;
     case 'deriveFromText':
       await deriveFromText(c.project);

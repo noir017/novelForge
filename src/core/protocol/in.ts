@@ -400,6 +400,8 @@ export type ProjectAction =
   | 'abandonThread'
   /** 拆书 A：把工程里的一本 txt 切成章节（零调用；后端弹框挑文件、报切分结果）。 */
   | 'importManuscript'
+  /** 导出全文（2026-10-24，零调用）：全部章节拼成一份 txt，写到工程根下的 `导出/<书名>.txt`，已有就覆盖。 */
+  | 'exportBook'
   /** 拆书 A：从已写正文补齐细纲、角色卡、架构、大纲（只补空白，两次确认）。 */
   | 'deriveFromText'
   | 'chapterGap'

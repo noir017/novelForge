@@ -177,7 +177,7 @@ describe('接着写第 3 章：卡片说「追加」', () => {
   });
 
   test('追加进了磁盘', () => {
-    const text = t.read('chapters/003-夜访.md');
+    const text = t.read('chapters/003-夜访.txt');
     assert.ok(text.includes(filler(300, 3)) && text.includes(filler(600, 30)));
   });
 });

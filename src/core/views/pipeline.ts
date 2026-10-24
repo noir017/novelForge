@@ -233,10 +233,10 @@ export function chapterOfPlotNo(chapters: Chapter[], no: number): Chapter | unde
  * 第 N 章的正文该落在哪。**要读盘**，所以不放进纯函数 `pathOfTarget`。
  *
  * 同号章节已存在就用它（`exists: true`，落盘走追加）；否则**落在细纲所在的那个子目录**
- * （`summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.md`），文件名沿用细纲的；细纲是
- * 还没起名时建的纯序号名（`030.md`）而标题已经有了，就按标题起 `030-<标题>.md`，`plotRelPath`
+ * （`summaries/第二卷/010-雪夜.md` → `chapters/第二卷/010-雪夜.txt`），文件名沿用细纲的；细纲是
+ * 还没起名时建的纯序号名（`030.md`）而标题已经有了，就按标题起 `030-<标题>.txt`，`plotRelPath`
  * 交给 `Workspace.createChapterAt` 把细纲改名到新正文的镜像——两边从此按路径认得出彼此。
- * 连细纲都没有时跟上一章放在一起，`NNN-<标题>.md`。
+ * 连细纲都没有时跟上一章放在一起，`NNN-<标题>.txt`。正文一律出 `.txt`（2026-10-24 作者定的）。
  */
 export async function chapterTargetOf(
   project: NovelProject,
@@ -253,7 +253,7 @@ export async function chapterTargetOf(
   const plot = await project.resolvePlot(plotRelPath);
   const title = plot?.title?.trim() ?? '';
   const stem = title ? sanitizeFileName(title) : '';
-  const named = stem ? `${pad3(no)}-${stem}.md` : `${pad3(no)}.md`;
+  const named = stem ? `${pad3(no)}-${stem}.txt` : `${pad3(no)}.txt`;
   const mirrored = plot ? project.chapterPathForPlot(plot.relPath) : undefined;
   if (plot && mirrored) {
     const keepName = !!parsePlotFileName(path.posix.basename(plot.relPath))?.stem.trim() || !stem;

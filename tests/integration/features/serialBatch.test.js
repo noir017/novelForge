@@ -35,7 +35,7 @@ const finished = [];
 
 const TITLES = ['停舟', '令牌', '夜访', '井', '名册'];
 const pad3 = (n) => String(n).padStart(3, '0');
-const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.md`;
+const CH = (no) => `chapters/${pad3(no)}-${TITLES[no - 1]}.txt`;
 const PLOT = (no) => `.novelforge/summaries/${pad3(no)}-${TITLES[no - 1]}.md`;
 const LIN = '.novelforge/characters/林昭.md';
 const SHEN = '.novelforge/characters/沈氏.md';

@@ -13,7 +13,7 @@
  * | 角色图谱 | `characters/` 下每人一张卡 | **同名跳过**，绝不覆盖，也就不必审阅 |
  * | 情节大纲 | `outline.md` | 覆盖前审阅 |
  * | 细纲 | `summaries/NNN-标题.md` | 覆盖前审阅；七节换新，标题 / 目标字数 / 定稿记的 sourceHash 与 cast 沿用磁盘那份 |
- * | 正文 | 同号的 `chapters/NNN-标题.md` | **追加**；落盘后在细纲上记 `writtenFrom` |
+ * | 正文 | 同号的 `chapters/NNN-标题.txt` | **追加**；落盘后在细纲上记 `writtenFrom` |
  *
  * 落盘的守卫在 `workspace/`，这里测的是分派与那几条取舍。
  */
@@ -772,13 +772,13 @@ describe('采纳 · 细纲（覆盖要审阅）', () => {
 });
 
 /**
- * 正文落在**同号的章节**上：没有就新建 `chapters/NNN-<细纲标题>.md`；有了按写法落——
+ * 正文落在**同号的章节**上：没有就新建 `chapters/NNN-<细纲标题>.txt`；有了按写法落——
  * 「接着写」追加、其余覆盖（写入前审阅）。落盘之后在细纲上记 `writtenFrom`——少了这一步，
  * 这一章会永远显示（或永远不显示）「正文与细纲对不上」。
  */
 describe('采纳 · 正文（落到同号章节）', () => {
   const plotRelPath = '.novelforge/summaries/012-夜入青云.md';
-  const CHAPTER = 'chapters/012-夜入青云.md';
+  const CHAPTER = 'chapters/012-夜入青云.txt';
   const target = { kind: 'manuscript', plotRelPath };
   let result;
   let confirms;
@@ -803,10 +803,9 @@ describe('采纳 · 正文（落到同号章节）', () => {
     assert.ok(t.read(CHAPTER).includes('石阶泡得发白'));
   });
 
-  // H1 用的是清洗后的标题，与文件名词干一致——改名时 `renamedBody` 才认得出
-  // 「这个 H1 是跟着文件名走的」。
-  test('新建的章节带标题行', () => {
-    assert.ok(t.read(CHAPTER).startsWith('# 夜入青云'), t.read(CHAPTER).slice(0, 40));
+  // 新建正文一律出 .txt（2026-10-24）：纯文本不写标题行，标题只在文件名里。
+  test('新建的章节是纯文本，不带标题行', () => {
+    assert.ok(t.read(CHAPTER).startsWith('雨下了三天'), t.read(CHAPTER).slice(0, 40));
   });
 
   test('新建章节不弹审阅', () => {
@@ -917,9 +916,9 @@ describe('采纳 · 正文（落到同号章节）', () => {
       assert.ok(text.includes('门开了') && !text.includes('石阶泡得发白'), text);
     });
 
-    // 标题行是作者起的名字，模型写的正文里没有它。
-    test('标题行沿用原文件', () => {
-      assert.ok(text.startsWith('# 夜入青云\n\n门开了'), JSON.stringify(text.slice(0, 30)));
+    // 纯文本的正文没有标题行（标题在文件名里），重写也不凭空加一行。
+    test('重写之后照旧没有标题行', () => {
+      assert.ok(text.startsWith('门开了'), JSON.stringify(text.slice(0, 30)));
     });
 
     test('照着新细纲写过之后不再标脏', () => {
@@ -1034,13 +1033,13 @@ describe('采纳 · 认不出是哪一章时报错而不是乱写', () => {
     assert.ok(!t.has('chapters/没有章号.md'));
   });
 
-  // 细纲与同号章节都不存在时：作者（或 agent 给了 `chapters/999.md`）明确要写这一章的
+  // 细纲与同号章节都不存在时：作者（或 agent 给了 `chapters/999.txt`）明确要写这一章的
   // 正文，那就按号新建一个没有标题的章节——不拿路径里的词干当标题（那不是作者起的），
   // 也不凭空造一份细纲；没有细纲，writtenFrom 就无处可记，这一章永不标脏（第 18a 条）。
   test('细纲与同号章节都不存在时，按号新建章节、不造细纲', async () => {
     await accept({ kind: 'manuscript', plotRelPath: '.novelforge/summaries/999-不存在.md' }, { kind: 'manuscript', text: '雨停了。' });
-    assert.ok(t.has('chapters/999.md'), '没有按号新建章节');
-    assert.ok(t.read('chapters/999.md').includes('雨停了。'));
+    assert.ok(t.has('chapters/999.txt'), '没有按号新建章节');
+    assert.ok(t.read('chapters/999.txt').includes('雨停了。'));
     assert.ok(!t.has('.novelforge/summaries/999-不存在.md') && !t.has('.novelforge/summaries/999.md'), '凭空造了细纲');
   });
 });

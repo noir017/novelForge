@@ -158,7 +158,7 @@ describe('审稿 · 一次成功', () => {
     assert.equal(r.draft.calls, 1);
     assert.equal(r.draft.artifact, undefined);
     assert.equal(r.draft.review.chapterNo, 2);
-    assert.equal(r.draft.review.chapterRelPath, 'chapters/002-客栈.md');
+    assert.equal(r.draft.review.chapterRelPath, 'chapters/002-客栈.txt');
   });
 
   test('伪造的引文那一条被丢掉，notes 写明', () => {
@@ -307,7 +307,7 @@ describe('修稿', () => {
     h.reviewed.length = 0;
     h.setReviewVerdict('apply');
     const res = await bundle.accept.acceptArtifact(project, r.draft.target, r.draft.artifact, { writeMode: 'revise' });
-    assert.equal(res.relPath, 'chapters/002-客栈.md');
+    assert.equal(res.relPath, 'chapters/002-客栈.txt');
     assert.equal(h.reviewed.length, 1);
     const text = await project.readChapterText(await project.getChapter(2));
     assert.ok(text.includes('她看了一眼他空着的手'));

@@ -331,7 +331,7 @@ describe('五期验收', () => {
       assert.equal(g.name, 'preflight');
       assert.match(g.danger, /沈秋的当前状态（截至第 2 章）写着「已死亡」，本章细纲仍安排这个人出场/);
       assert.match(lastAssistant().content, /这一次先不写——没有调用模型/);
-      assert.ok(!t.has('chapters/003-渡口.md'));
+      assert.ok(!t.has('chapters/003-渡口.txt'));
     });
 
     test('再按一次、选「仅本次忽略」：照写', async () => {
@@ -341,7 +341,7 @@ describe('五期验收', () => {
       await press(await nextStep());
       assert.equal(fake.calls.length, 1);
       assert.deepEqual(gates().map((g) => g.name), ['preflight', 'artifact']);
-      assert.ok(t.has('chapters/003-渡口.md'));
+      assert.ok(t.has('chapters/003-渡口.txt'));
     });
   });
 
