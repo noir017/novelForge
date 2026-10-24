@@ -71,7 +71,7 @@ before(async () => {
 
 after(() => {
   vs?.restore?.();
-  cleanup(t);
+  cleanup(t.dir);
 });
 
 describe('审稿配方 · 第 3 章', () => {

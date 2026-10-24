@@ -108,7 +108,7 @@ before(async () => {
 
 after(() => {
   vs?.restore?.();
-  cleanup(t);
+  cleanup(t.dir);
 });
 
 describe('正文配方 · 写第 4 章（后续章）', () => {
