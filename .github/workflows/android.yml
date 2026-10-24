@@ -1,6 +1,9 @@
 # Android app 的构建。两种用法：
-# - 手动点（workflow_dispatch）：出 debug 签名的包，只进 artifact，日常验证「还能编出来」、拿去手机上试。
-# - 发版时由 release.yml 调用（release: true）：用仓库 secrets 里的发版密钥签名，产物交给 release 汇总。
+# - 手动点（workflow_dispatch）：日常验证「还能编出来」、拿去手机上试，产物只进 artifact。
+# - 发版时由 release.yml 调用（release: true）：产物交给 release 汇总。
+#
+# 两种都用仓库 secrets 里的发版密钥签名：CI 上的 debug 签名每次构建都是新生成的一把，两次的包不能互相覆盖安装，
+# 每试一次都得先卸载，app 私有目录里的配置与 API Key 跟着没了。手动点时没有密钥才退回 debug 签名（并警告）；发版时没有就停下。
 #
 # 为什么在 CI 上编：Google 的 aapt2 只出 x86_64，开发机是 arm64；ubuntu runner 自带 Android SDK。
 # 打包本身见 src/shells/android/scripts/build.sh：独立版打成 node 单文件进 assets，Termux 的 node 进 jniLibs。
@@ -50,29 +53,27 @@ jobs:
       - name: 跑测试
         run: npm test
 
-      - name: 打 debug 包
-        if: ${{ !inputs.release }}
-        run: |
-          src/shells/android/scripts/build.sh debug
-          cp src/shells/android/app/build/outputs/apk/debug/app-debug.apk novelforge-android-debug.apk
-
-      # 发版必须用发版密钥：签名不同的包不能覆盖安装，退回 debug 签名的话装过的人升不了级。缺了就停下。
-      - name: 打发版包
-        if: ${{ inputs.release }}
+      - name: 打包
         env:
           KEYSTORE_BASE64: ${{ secrets.NOVELFORGE_KEYSTORE_BASE64 }}
           NOVELFORGE_KEYSTORE_PASSWORD: ${{ secrets.NOVELFORGE_KEYSTORE_PASSWORD }}
+          RELEASE: ${{ inputs.release }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$NOVELFORGE_KEYSTORE_PASSWORD" ]; then
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$NOVELFORGE_KEYSTORE_PASSWORD" ]; then
+            export NOVELFORGE_KEYSTORE="$RUNNER_TEMP/release.jks"
+            base64 -d <<<"$KEYSTORE_BASE64" > "$NOVELFORGE_KEYSTORE"
+            keytool -list -keystore "$NOVELFORGE_KEYSTORE" -storepass "$NOVELFORGE_KEYSTORE_PASSWORD" -alias novelforge | grep -i fingerprint
+            src/shells/android/scripts/build.sh release
+            rm -f "$NOVELFORGE_KEYSTORE"
+            cp src/shells/android/app/build/outputs/apk/release/app-release.apk novelforge-android.apk
+          elif [ "$RELEASE" = "true" ]; then
             echo "::error::仓库 secrets 里缺 NOVELFORGE_KEYSTORE_BASE64 / NOVELFORGE_KEYSTORE_PASSWORD（Android 发版密钥）"
             exit 1
+          else
+            echo "::warning::没有发版密钥，出的是 debug 签名的包：和发版的包签名不同，不能互相覆盖安装"
+            src/shells/android/scripts/build.sh debug
+            cp src/shells/android/app/build/outputs/apk/debug/app-debug.apk novelforge-android-debug.apk
           fi
-          export NOVELFORGE_KEYSTORE="$RUNNER_TEMP/release.jks"
-          base64 -d <<<"$KEYSTORE_BASE64" > "$NOVELFORGE_KEYSTORE"
-          keytool -list -keystore "$NOVELFORGE_KEYSTORE" -storepass "$NOVELFORGE_KEYSTORE_PASSWORD" -alias novelforge | grep -i fingerprint
-          src/shells/android/scripts/build.sh release
-          rm -f "$NOVELFORGE_KEYSTORE"
-          cp src/shells/android/app/build/outputs/apk/release/app-release.apk novelforge-android.apk
 
       - uses: actions/upload-artifact@v4
         with:

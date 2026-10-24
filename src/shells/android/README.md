@@ -33,10 +33,12 @@ src/shells/android/scripts/build.sh release    # 设了 NOVELFORGE_KEYSTORE（�
 
 日常在 CI 上编：Google 的 aapt2 只出 x86_64，arm64 的开发机要编得改用 Debian 13 的 `aapt` 包，并在 `~/.gradle/gradle.properties` 里设 `android.aapt2FromMavenOverride`。
 
-- `.github/workflows/android.yml`：手动点出 debug 包（artifact `android`）。
-- 发版时 `release.yml` 调它出发版签名的包，附件名 `NovelForge-<版本>-android-arm64.apk`。发版密钥在仓库 secrets
-  `NOVELFORGE_KEYSTORE_BASE64` / `NOVELFORGE_KEYSTORE_PASSWORD` 里（别名 `novelforge`），**缺了整个 Release 停下**——
-  退回 debug 签名的话，装过的人升不了级（签名不同不能覆盖安装）。
+- `.github/workflows/android.yml`：手动点出包（artifact `android`），发版时 `release.yml` 调它，附件名 `NovelForge-<版本>-android-arm64.apk`。
+- 两种都用发版密钥签名（仓库 secrets `NOVELFORGE_KEYSTORE_BASE64` / `NOVELFORGE_KEYSTORE_PASSWORD`，别名 `novelforge`），
+  手动点出来的包和 Release 里的可以互相覆盖安装。CI 上的 debug 签名每次构建都是新生成的一把，用它的话每试一次都得先卸载、
+  app 私有目录里的配置与 API Key 跟着没了，所以只在手动点又没有密钥时退回它；**发版时缺密钥整个 Release 停下**。
+- 密钥本体（`release.jks` 与口令）在 uniagent 的 `~/.config/novelforge-android/`，随 oracle 的 `~/apps` 每周进 unraid 备份；
+  GitHub secrets 只写不可读，那里是唯一能取回的副本。丢了就没法给已装的人发升级包。
 
 版本号取自仓库根 `package.json`（`0.2.8` → versionCode 208），`tests/contract/version.test.js` 守着。
 

@@ -347,7 +347,7 @@ public class MainActivity extends Activity {
         url.setText(prefs.getString("remote_url", ""));
         form.addView(url);
         EditText token = new EditText(this);
-        token.setHint("访问令牌（可空，空着就在网页上登录）");
+        token.setHint("访问令牌（可空）");
         // setSingleLine 会换掉遮挡字符的 TransformationMethod，必须排在设密码类型之前，不然令牌明文显示
         token.setSingleLine(true);
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
