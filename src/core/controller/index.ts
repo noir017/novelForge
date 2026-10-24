@@ -626,6 +626,8 @@ export class ChatController {
           review: msg.review,
           name: msg.name,
           expandLore: msg.expandLore,
+          open: msg.open,
+          hostPath: msg.hostPath,
         });
         return;
 
@@ -735,6 +737,8 @@ export class ChatController {
       // 之前拦下。插件不会发这些消息。空分支避免 InMessage 联合漏网。
       case 'listHostDir':
       case 'createHostDir':
+      case 'createProject':
+      case 'inspectBook':
       case 'openFolder':
       case 'closeFolder':
       case 'activateWorkspace':

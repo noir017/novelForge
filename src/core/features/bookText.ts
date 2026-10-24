@@ -75,6 +75,14 @@ export async function readBookText(project: NovelProject, where: string): Promis
   const abs = path.isAbsolute(where) ? path.resolve(where) : resolveInRoot(project.root, where);
   const inside = path.relative(project.root, abs);
   const shown = inside && !inside.startsWith('..') && !path.isAbsolute(inside) ? inside.split(path.sep).join('/') : abs;
+  return readBookFile(abs, shown);
+}
+
+/**
+ * 按绝对路径读一本、解码，还没有工程也能读（欢迎页「导入写好的书」先看切得出几章，再建工程）。
+ * 上限与报错同 {@link readBookText}。
+ */
+export async function readBookFile(abs: string, shown = abs): Promise<BookText> {
   let stat;
   try {
     stat = await fs.stat(abs);

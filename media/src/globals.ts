@@ -69,7 +69,7 @@ declare global {
   interface WindowEventMap {
     'nf-editor-active': CustomEvent<{ path: string | null }>;
     'nf-files-moved': CustomEvent<{ from: string; to: string }>;
-    'nf-pick-folder': CustomEvent<{ intent: 'open' | 'new' | 'file' }>;
+    'nf-pick-folder': CustomEvent<{ intent: 'open' | 'file' }>;
     'nf-editor-query': CustomEvent<EditorStatus>;
     'nf-editor-command': CustomEvent<{ name: EditorCommandName }>;
     'nf-workspace-reset': Event;

@@ -53,7 +53,7 @@ import { exposeToast, toast } from './toast';
 import { installFolderPicker } from './folderPicker';
 import { installForm } from './form';
 import { installCheckpoints, renderCheckpointDiff, renderCheckpoints } from './checkpoints';
-import { applyWorkspaces, installWelcome } from './welcome';
+import { applyBookInspected, applyProjectCreated, applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
 
 restoreDraft();
@@ -266,6 +266,15 @@ onMessage((msg) => {
 
     case 'workspaces':
       applyWorkspaces(msg);
+      break;
+
+    // 欢迎页「新建一本书」「导入写好的书」（view/welcome.ts）。
+    case 'projectCreated':
+      applyProjectCreated(msg);
+      break;
+
+    case 'bookInspected':
+      applyBookInspected(msg);
       break;
   }
 });

@@ -70,6 +70,26 @@ export function nextStepRow(step: NextStepView, tree: ProjectTree): HTMLElement 
   return row;
 }
 
+/**
+ * 章节组为空（2026-10-24 新手上手）：自己写的新建第 1 章（建完就打开，接着就能写），写好的书导入原稿。这两颗不是
+ * 「下一步」——全书的下一步（对话页主按钮那一句）照旧在下面另起一行（第 20 条）；这里只是把右键菜单里那两项摆到
+ * 明处。都不调模型：新建先问章名，导入先给作者看切出几章。
+ */
+export function chaptersEmptyRow(tree: ProjectTree): HTMLElement {
+  return hintRow('还没有章节。自己写就新建一章，建好就打开；已经写好的书导入一本 txt，按章标题切成一章一份。', [
+    {
+      label: `新建第 ${tree.nextChapterNo || 1} 章`,
+      title: '先问章节名称（可以空着），建好就在右边打开，同时配一份空细纲。不调模型',
+      run: () => vscode.postMessage({ type: 'projectAction', action: 'newChapter', open: true }),
+    },
+    {
+      label: '导入原稿…',
+      title: '挑一本 txt，按「第一章 雪夜」这样单独一行的章标题切成一章一份；先告诉你切出几章再导入。不调模型',
+      run: () => projectAction('importManuscript'),
+    },
+  ]);
+}
+
 /** 已经写过正文没有（老工程直接把章放进来的也算）。 */
 function hasText(tree: ProjectTree): boolean {
   return tree.totalWords > 0;

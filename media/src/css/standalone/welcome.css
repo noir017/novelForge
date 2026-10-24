@@ -12,12 +12,14 @@
   color: var(--vscode-foreground);
 }
 
+/* 上面「开始」「最近」两栏，「怎么上手」整宽排在下面、与上面左对齐（窄了就一栏一栏往下排）。 */
 body.no-workspace #nfWelcome,
 body.show-welcome #nfWelcome {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 300px));
   justify-content: center;
+  align-content: start;
+  gap: 36px 48px;
 }
 
 body.no-workspace #edWelcome {
@@ -99,9 +101,36 @@ body.no-workspace #edWelcome {
   color: var(--vscode-descriptionForeground);
 }
 
+/* 「怎么上手」：占满上面两栏那么宽，一条一段。 */
+.nf-welcome-col.nf-welcome-copy {
+  grid-column: 1 / -1;
+  max-width: 648px;
+}
+
+.nf-welcome-col.nf-welcome-copy p {
+  max-width: none;
+}
+
+.nf-welcome-steps {
+  margin: 0 0 16px;
+  padding-left: 1.3em;
+  line-height: 1.7;
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.nf-welcome-steps li {
+  margin: 0 0 6px;
+}
+
+.nf-welcome-steps strong {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+
 .nf-welcome-copy dl {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: max-content 1fr;
   gap: 4px 14px;
   margin: 0;
   font-size: 0.85em;

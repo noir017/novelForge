@@ -11,6 +11,9 @@
  * | GBK 照读 | 中文 txt 一大半是 GBK |
  * | 导入完问一句要不要接着补齐；不接就零调用 | 第 4 条：调模型的那一步另报次数 |
  * | agent 给的路径只认清单里的 | 第 25 条：不越过既有的闸门 |
+ * | 欢迎页先看一眼（`inspectBookFile`）：认出几章、说明与确认框同一份，不写任何文件 | 认不出章就不建工程 |
+ * | 欢迎页带来的那一本（`hostPath`）：不弹选择器、不再问切分结果，照样问要不要接着补齐 | 表单就是那一问 |
+ * | 还没配模型：不问「接着补齐」，说清先去设置配模型 | 不弹一个点了就报错的框 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,6 +28,8 @@ let bundle;
 let h;
 let fake;
 const projects = [];
+/** 置 true 时设置里一个服务商都没有（刚上手、还没配模型）。 */
+let noModel = false;
 
 const BOOK = [
   '青云剑录',
@@ -55,7 +60,10 @@ before(() => {
   });
   h = makeFakeHost({
     supportsVscodeLm: true,
-    settings: () => ({ providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }], models: ['p/m'], concurrency: 1 }),
+    settings: () =>
+      noModel
+        ? {}
+        : { providers: [{ id: 'p', kind: 'vscode-lm', models: [{ name: 'm', contextWindow: 100000 }] }], models: ['p/m'], concurrency: 1 },
   });
   bundle.host.initHost(h.host);
   fake = installFakeProvider(bundle.registry, { reply: () => '' });
@@ -196,5 +204,67 @@ describe('导入原稿 · 边角', () => {
     t.project.invalidate();
     await assert.rejects(() => bundle.importer.importManuscript(t.project, { path: 'chapters/001-楔子.txt' }), /不是工程里能拆的 txt/);
     await assert.rejects(() => bundle.importer.importManuscript(t.project, { path: '../外面.txt' }), /不是工程里能拆的 txt/);
+  });
+});
+
+describe('导入原稿 · 欢迎页带来的那一本', () => {
+  const { makeTempDir } = require('../../helpers/tmpProject');
+  /** 工程外的一本 txt（欢迎页在本机任意处挑的）。 */
+  function outsideBook(name, text) {
+    const t = makeTempDir('import-host');
+    projects.push(t);
+    t.write(name, text);
+    return t.rel(name);
+  }
+
+  test('先看一眼：认出几章、导成第几章、丢掉了什么，与确认框同一份；不写任何文件', async () => {
+    const abs = outsideBook('原稿.txt', BOOK);
+    const r = await bundle.importer.inspectBookFile(abs);
+    assert.equal(r.path, abs);
+    assert.equal(r.title, '原稿');
+    assert.equal(r.chapters, 3);
+    assert.match(r.headline, /^从《原稿》认出 3 章（\d+ 字），导入为第 1–3 章$/);
+    assert.ok(r.detail.some((l) => /第 1 章《入宗》（原文「第一章 入宗」/.test(l)), r.detail.join('|'));
+    assert.ok(r.detail.some((l) => l.includes('2 行卷标题')), r.detail.join('|'));
+    assert.ok(r.detail.some((l) => l.includes('chapters/NNN-标题.txt')), r.detail.join('|'));
+    assert.equal(r.error, undefined);
+    assert.deepEqual(fs.readdirSync(require('path').dirname(abs)), ['原稿.txt']);
+  });
+
+  test('认不出章、读不到：chapters 为 0，原因在 error', async () => {
+    const r = await bundle.importer.inspectBookFile(outsideBook('散文.txt', '从前有座山。\n山里有座庙。'));
+    assert.equal(r.chapters, 0);
+    assert.match(r.error, /认不出章节标题/);
+    const gone = await bundle.importer.inspectBookFile(require('path').join(require('os').tmpdir(), 'nf-没有这本书.txt'));
+    assert.equal(gone.chapters, 0);
+    assert.match(gone.error, /读不到/);
+  });
+
+  test('带着 hostPath 导入：不弹选择器、不再问切分结果，导完照样问要不要接着补齐', async () => {
+    const t = await fresh('import-host-ok');
+    const abs = outsideBook('青云剑录.txt', BOOK);
+    h.expect(undefined);
+    const r = await bundle.importer.importManuscript(t.project, { hostPath: abs });
+    assert.deepEqual(r, { imported: 3, calls: 0 });
+    assert.equal(h.picks.length, 0);
+    assert.equal(h.confirms.length, 1);
+    assert.match(h.confirms[0].message, /^已导入第 1–3 章。接着从已写正文补齐/);
+    assert.equal(t.read('chapters/001-入宗.txt'), '林昭站在山门前。\n\n“你来晚了。”沈青说。\n');
+    assert.equal(fake.callCount(), 0);
+  });
+
+  test('还没配模型：导完不问「接着补齐」，说清先去设置配一个', async () => {
+    const t = await fresh('import-host-nomodel');
+    const abs = outsideBook('原稿.txt', BOOK);
+    noModel = true;
+    try {
+      h.expect();
+      const r = await bundle.importer.importManuscript(t.project, { hostPath: abs });
+      assert.deepEqual(r, { imported: 3, calls: 0 });
+      assert.equal(h.confirms.length, 0);
+      assert.ok(h.toasts.some((x) => x.includes('已导入第 1–3 章') && x.includes('先到「设置」配一个模型')), h.toasts.join('|'));
+    } finally {
+      noModel = false;
+    }
   });
 });

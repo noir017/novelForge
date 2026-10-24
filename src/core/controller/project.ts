@@ -38,6 +38,7 @@ import { CallChoice, normalizeCallChoice } from '../model/callChoice';
 import { isWriteBatchMode } from '../model/pipeline';
 import { PARAGRAPH_STYLE_LABEL, isParagraphStyle } from '../model/paragraphFormat';
 import { selectPlot } from './chat';
+import { openChapter } from './files';
 
 const log = scoped('面板');
 
@@ -62,6 +63,8 @@ export async function projectAction(
     review?: boolean;
     name?: string;
     expandLore?: boolean;
+    open?: boolean;
+    hostPath?: string;
   } = {}
 ): Promise<void> {
   // refresh 每次切页/刷盘都来一趟，记了只会淹掉别的；其余动作都值得留痕。
@@ -87,11 +90,15 @@ export async function projectAction(
       }
       break;
     }
-    case 'newChapter':
+    case 'newChapter': {
       // 手工新建一个章节文件。**不进创作页**——建它多半是作者要往里粘一段
-      // 现成的正文。
-      await newChapterFlow(c.project, dir);
+      // 现成的正文。工程页「章节」还空着时那颗「新建第 1 章」带 `open`：建完就打开，接着就能写。
+      const rel = await newChapterFlow(c.project, dir);
+      if (rel && batch.open) {
+        await openChapter(c, rel);
+      }
       break;
+    }
     case 'newCharacter':
       await newCharacter(c.project, dir);
       break;
@@ -209,7 +216,8 @@ export async function projectAction(
       }
       break;
     case 'importManuscript':
-      await importManuscript(c.project);
+      // 欢迎页「导入写好的书」建好工程之后带着那本 txt 的绝对路径来（表单上看过切分结果，不再问）；工程页右键不带。
+      await importManuscript(c.project, batch.hostPath ? { hostPath: batch.hostPath } : {});
       break;
     case 'exportBook':
       await exportBookText(c.project);

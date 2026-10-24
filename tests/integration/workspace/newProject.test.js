@@ -258,3 +258,66 @@ describe('初始化流程（插件命令、网页按钮、CLI 共用的 initProj
     assert.match(t.read('.novelforge/project.json'), /流程建的书/);
   });
 });
+
+// 欢迎页「新建一本书」「导入写好的书」（2026-10-24）：一张表单填好书名、作者、放在哪，一步建好。
+describe('createBookAt：在一个目录下建一本书', () => {
+  const readManifest = (root) => JSON.parse(fs.readFileSync(path.join(root, '.novelforge/project.json'), 'utf8'));
+
+  test('建一个以书名命名的文件夹、初始化，返回它的绝对路径', async () => {
+    const t = tempDir('newbook');
+    const root = await bundle.actions.createBookAt(t.dir, { title: '  青云剑录 ', author: ' 某某 ' });
+    assert.equal(root, path.join(t.dir, '青云剑录'));
+    const manifest = readManifest(root);
+    assert.equal(manifest.title, '青云剑录');
+    assert.equal(manifest.author, '某某');
+    for (const rel of TEMPLATE_RELS) {
+      assert.ok(fs.existsSync(path.join(root, rel)), rel);
+    }
+    assert.ok(fs.statSync(path.join(root, 'chapters')).isDirectory());
+    // 与「打开文件夹 → 初始化」是同一个结果：工程认得出自己已经初始化了。
+    assert.equal(await bundle.project.NovelProject.open(root).isInitialized(), true);
+  });
+
+  test('「放在」那个目录还不在：一路建出来', async () => {
+    const t = tempDir('newbook-deep');
+    const root = await bundle.actions.createBookAt(path.join(t.dir, '小说', '长篇'), { title: '雪夜', author: '' });
+    assert.equal(root, path.join(t.dir, '小说', '长篇', '雪夜'));
+    assert.equal(readManifest(root).author, '');
+  });
+
+  test('文件名里不许有的字从文件夹名里删掉，书名照原样记', async () => {
+    const t = tempDir('newbook-chars');
+    const root = await bundle.actions.createBookAt(t.dir, { title: '青云:剑录?', author: '' });
+    assert.equal(path.basename(root), '青云剑录');
+    assert.equal(readManifest(root).title, '青云:剑录?');
+  });
+
+  test('同名文件夹空着：用它', async () => {
+    const t = tempDir('newbook-empty');
+    fs.mkdirSync(t.rel('雪夜'));
+    const root = await bundle.actions.createBookAt(t.dir, { title: '雪夜', author: '' });
+    assert.equal(root, t.rel('雪夜'));
+    assert.ok(fs.existsSync(t.rel('雪夜/.novelforge/project.json')));
+  });
+
+  test('同名文件夹里有东西：报错，一个字节都不写', async () => {
+    const t = tempDir('newbook-busy');
+    t.write('雪夜/笔记.txt', '别人的东西');
+    await assert.rejects(() => bundle.actions.createBookAt(t.dir, { title: '雪夜', author: '' }), /里面还有别的东西/);
+    assert.deepEqual(fs.readdirSync(t.rel('雪夜')), ['笔记.txt']);
+  });
+
+  test('同名文件夹已经是一本书：报错，叫作者用「打开文件夹」', async () => {
+    const t = tempDir('newbook-twice');
+    await bundle.actions.createBookAt(t.dir, { title: '雪夜', author: '' });
+    await assert.rejects(() => bundle.actions.createBookAt(t.dir, { title: '雪夜', author: '' }), /已经是一本书了，用「打开文件夹」/);
+  });
+
+  test('书名空着、只剩不能当文件夹名的字、「放在」空着：都报错', async () => {
+    const t = tempDir('newbook-bad');
+    await assert.rejects(() => bundle.actions.createBookAt(t.dir, { title: '  ', author: '' }), /书名不能为空/);
+    await assert.rejects(() => bundle.actions.createBookAt(t.dir, { title: '???', author: '' }), /都不能当文件夹名/);
+    await assert.rejects(() => bundle.actions.createBookAt(' ', { title: '雪夜', author: '' }), /「放在」还空着/);
+    assert.deepEqual(fs.readdirSync(t.dir), []);
+  });
+});

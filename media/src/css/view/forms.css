@@ -56,3 +56,22 @@ textarea:focus {
   background: var(--vscode-inputValidation-warningBorder, #b89500);
   border-color: var(--vscode-inputValidation-warningBorder, #b89500);
 }
+
+/* 一行字带「选…」（新建一本书的「放在」）：框与按钮并排。 */
+.field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.field-row > .chip-btn {
+  flex: none;
+}
+
+/* 表单说明下面的几行小字（导入写好的书：开头几章、丢掉了什么）。 */
+.nf-form .form-details {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: 0.9em;
+  line-height: 1.6;
+}

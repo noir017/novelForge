@@ -1,13 +1,22 @@
 /**
- * 空窗口 Get Started、窗口标题、无工程时侧栏短空态。
+ * 空窗口欢迎页（开始 / 最近 / 怎么上手）、窗口标题、无工程时侧栏短空态。
+ *
+ * 「新建一本书」「导入写好的书」（2026-10-24）各是一张表单：书名、作者、放在哪一次填好，后端建文件夹并初始化
+ * （`createProject` → `projectCreated`），前端再照常打开它；导入的那本 txt 先看切得出几章（`inspectBook` →
+ * `bookInspected`），说明摆在表单上，打开之后带着它的路径接着导入（`projectAction importManuscript hostPath`）。
  *
  * 没有 `#nfWelcome` 就直接 return（插件）。不判断壳名。
  */
 import { el as mk } from '../dom';
 import { confirmProceedIfDirty, resetEditor, windowProject } from '../globals';
-import type { WorkspaceItem, WorkspaceRecent } from '../protocol';
+import { bookDirName } from '../protocol';
+import type { BookInspection, WorkspaceItem, WorkspaceRecent } from '../protocol';
+import { pickHostPath } from './folderPicker';
+import { openForm } from './form';
+import { showProjectTab } from './project/tabs';
 import { el } from './refs';
 import { hasWorkspace, store, vscode } from './store';
+import { showTab } from './tabs';
 import { toast } from './toast';
 
 const EMPTY_HINT = '打开文件夹后即可使用';
@@ -15,19 +24,106 @@ const SIDE_PANES = ['pane-chat', 'pane-project', 'pane-files', 'pane-history'];
 
 let fileName: string | null = null;
 let about: HTMLElement | undefined;
-/** 新建工程：打开成功且换了工作区之后再跑初始化。 */
-let pendingInit = false;
-
-export function markPendingInit(): void {
-  pendingInit = true;
-}
+/**
+ * 刚建好、等着打开的那本书：打开之后切到「工程 → 章节」，带着 txt 的接着导入。`root` 是后端给的真实路径，与
+ * `workspaces` 的 `currentId` 同一个口径——只在这个窗口真换成了它时才落地，换成了别的（没打开成、作者又开了别的）就作废，
+ * 绝不把 txt 导进另一本书。
+ */
+let pendingBook: { root: string; importFrom?: string } | undefined;
+/** 「导入写好的书」挑好、正等后端看切得出几章的那一本。别的回答不认。 */
+let inspecting: string | undefined;
 
 export function requestOpenFolder(): void {
   pickFolder('open', '打开文件夹');
 }
 
+/** 「新建一本书…」：一张表单，书名、作者、放在哪。 */
 export function requestNewProject(): void {
-  pickFolder('new', '新建工程：选择一个空目录');
+  openBookForm();
+}
+
+/** 「导入写好的书（txt）…」：先挑一本，后端看切得出几章，再开同一张表单。 */
+export function requestImportBook(): void {
+  pickHostPath({
+    kind: 'file',
+    title: '导入写好的书：选一本 txt',
+    extensions: ['txt'],
+    onPick: (path) => {
+      inspecting = path;
+      vscode.postMessage({ type: 'inspectBook', path });
+    },
+  });
+}
+
+/** 后端看完了那本 txt：认不出章就说为什么（改好 txt 再来），认得出就开表单。 */
+export function applyBookInspected(msg: BookInspection): void {
+  if (msg.path !== inspecting) {
+    return;
+  }
+  inspecting = undefined;
+  if (msg.chapters === 0) {
+    toast(msg.error ?? '这本 txt 里认不出章节。', true);
+    return;
+  }
+  openBookForm(msg);
+}
+
+/** 建好了：照常打开（这个窗口还是新窗口看设置），打开之后切到章节页、接着导入。 */
+export function applyProjectCreated(msg: { root: string; importFrom?: string }): void {
+  openProject(msg.root, { fresh: true, importFrom: msg.importFrom });
+}
+
+/**
+ * 新建一本书 / 导入写好的书的那张表单。`inspection` 给了就是导入：说明里写认出几章、丢掉了什么（与「导入原稿」
+ * 确认框同一份），书名缺省取文件名，提交带上那本 txt。
+ */
+function openBookForm(inspection?: BookInspection): void {
+  openForm({
+    title: inspection ? '导入写好的书' : '新建一本书',
+    lead: inspection
+      ? `${inspection.headline}。这一步不调用模型。`
+      : '起个书名就建好一本空书，接着在「工程 → 章节」里新建第 1 章开写。光写字不需要配模型。',
+    details: inspection?.detail,
+    fields: [
+      { kind: 'text', key: 'title', label: '书名', value: inspection?.title ?? '', placeholder: '如「青云剑录」', required: true },
+      { kind: 'text', key: 'author', label: '作者（可以空着）' },
+      {
+        kind: 'text',
+        key: 'parent',
+        label: '放在',
+        value: store.newProjectParent ?? '',
+        required: true,
+        browse: {
+          label: '选…',
+          run: (current, set) =>
+            pickHostPath({ kind: 'dir', title: '放在哪个文件夹里', start: current.trim() || undefined, onPick: set }),
+        },
+      },
+    ],
+    note: (v) => {
+      const name = bookDirName(String(v.title));
+      if (!name) {
+        return { text: '书名里的字都不能当文件夹名，换一个。', ok: false };
+      }
+      return { text: `会新建文件夹 ${joinPath(String(v.parent), name)}，书就放在里面。` };
+    },
+    submitLabel: inspection ? '导入' : '新建',
+    onSubmit: (v) =>
+      vscode.postMessage({
+        type: 'createProject',
+        parent: String(v.parent),
+        title: String(v.title),
+        author: String(v.author),
+        ...(inspection ? { importFrom: inspection.path } : {}),
+      }),
+  });
+}
+
+/** 预览用的拼路径：目录里写的是反斜杠（Windows）就用反斜杠。真建在哪以后端为准。 */
+function joinPath(parent: string, name: string): string {
+  const dir = parent.trim();
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  return `${dir.replace(/[\\/]+$/, '')}${sep}${name}`;
 }
 
 export function requestOpenFile(): void {
@@ -37,7 +133,7 @@ export function requestOpenFile(): void {
   pickFolder('file', '打开文件：工程内相对路径');
 }
 
-function pickFolder(intent: 'open' | 'new' | 'file', title: string): void {
+function pickFolder(intent: 'open' | 'file', title: string): void {
   const ev = new CustomEvent('nf-pick-folder', { detail: { intent }, cancelable: true });
   window.dispatchEvent(ev);
   if (ev.defaultPrevented) {
@@ -51,28 +147,33 @@ function pickFolder(intent: 'open' | 'new' | 'file', title: string): void {
     vscode.postMessage({ type: 'openEditor', path: path.trim() });
     return;
   }
-  openProject(path.trim(), { init: intent === 'new' });
+  openProject(path.trim());
 }
 
 export function openRecent(root: string): void {
   openProject(root);
 }
 
-/** 新窗口网址上的这个参数：打开之后跑一遍新建工程的初始化。 */
-const INIT_PARAM = 'init';
+/** 新窗口网址上的这两个参数：刚建好的书（打开之后切到章节页）、接着要导入的那本 txt。 */
+const BOOK_PARAM = 'book';
+const IMPORT_PARAM = 'import';
 
 /**
  * 打开一个工程。这个窗口已经开着别的工程、且设置里开着「新窗口中打开项目」时开一个新窗口，
- * 这个窗口不动；否则换掉这个窗口里的工程。`init`：新建工程，打开后跑初始化。
+ * 这个窗口不动；否则换掉这个窗口里的工程。`fresh`：刚建好的书，打开后切到「工程 → 章节」；
+ * `importFrom`：接着把这本 txt 导进来。
  */
-export function openProject(root: string, opts: { init?: boolean } = {}): void {
+export function openProject(root: string, opts: { fresh?: boolean; importFrom?: string } = {}): void {
   if (store.openInNewWindow && store.currentId && store.currentId !== root) {
     const url = new URL(location.href);
     url.search = '';
     url.hash = '';
     url.searchParams.set('project', root);
-    if (opts.init) {
-      url.searchParams.set(INIT_PARAM, '1');
+    if (opts.fresh) {
+      url.searchParams.set(BOOK_PARAM, '1');
+    }
+    if (opts.importFrom) {
+      url.searchParams.set(IMPORT_PARAM, opts.importFrom);
     }
     if (window.open(url.toString(), '_blank')) {
       return;
@@ -82,10 +183,20 @@ export function openProject(root: string, opts: { init?: boolean } = {}): void {
   if (!confirmProceedIfDirty()) {
     return;
   }
-  if (opts.init) {
-    markPendingInit();
+  if (opts.fresh) {
+    pendingBook = { root, ...(opts.importFrom ? { importFrom: opts.importFrom } : {}) };
   }
   vscode.postMessage({ type: 'openFolder', path: root, mode: 'replace' });
+}
+
+/** 刚建好的书打开了：侧栏切到「工程 → 章节」（新书在那里新建第 1 章，导入的书在那里看导进来的章），有 txt 就接着导入。 */
+function landInBook(book: { importFrom?: string }): void {
+  showTab('project');
+  vscode.postMessage({ type: 'switchTab', tab: 'project' });
+  showProjectTab('chapters');
+  if (book.importFrom) {
+    vscode.postMessage({ type: 'projectAction', action: 'importManuscript', hostPath: book.importFrom });
+  }
 }
 
 /**
@@ -155,12 +266,16 @@ export function applyWorkspaces(msg: {
   items: WorkspaceItem[];
   recents: WorkspaceRecent[];
   openInNewWindow?: boolean;
+  newProjectParent?: string;
 }): void {
   const prev = store.currentId;
   store.currentId = msg.currentId;
   store.recents = msg.recents ?? [];
   if (typeof msg.openInNewWindow === 'boolean') {
     store.openInNewWindow = msg.openInNewWindow;
+  }
+  if (msg.newProjectParent) {
+    store.newProjectParent = msg.newProjectParent;
   }
   // 先改网址再重置编辑器：标签页按网址上的工程分开记，重置之后要读的是新工程那一份。
   syncUrl(msg.currentId);
@@ -173,11 +288,13 @@ export function applyWorkspaces(msg: {
   if (prev !== undefined && msg.currentId !== prev) {
     resetEditor();
   }
-  if (pendingInit) {
-    if (msg.currentId && msg.currentId !== prev) {
-      vscode.postMessage({ type: 'projectAction', action: 'initProject' });
+  // 等的是「这个窗口换了工程」那一条：空窗口那一条（新窗口刚装好时自己推的）与还是原来那本的不算。
+  if (pendingBook && msg.currentId && msg.currentId !== prev) {
+    const book = pendingBook;
+    pendingBook = undefined;
+    if (msg.currentId === book.root) {
+      landInBook(book);
     }
-    pendingInit = false;
   }
   updateTitle(msg.items[0]);
   renderRecents();
@@ -203,6 +320,8 @@ export function installWelcome(): void {
       requestOpenFolder();
     } else if (btn.dataset.welcome === 'newProject') {
       requestNewProject();
+    } else if (btn.dataset.welcome === 'importBook') {
+      requestImportBook();
     }
   });
 
@@ -214,11 +333,14 @@ export function installWelcome(): void {
     updateTitle();
   });
 
-  // 新建工程开在了新窗口里：打开之后由这个窗口跑初始化。参数用过就摘掉，刷新不再跑一遍。
+  // 刚建好的书开在了新窗口里：打开之后由这个窗口切到章节页、接着导入。参数用过就摘掉，刷新不再来一遍。
   const url = new URL(location.href);
-  if (url.searchParams.has(INIT_PARAM)) {
-    markPendingInit();
-    url.searchParams.delete(INIT_PARAM);
+  const project = url.searchParams.get('project');
+  if (url.searchParams.has(BOOK_PARAM) && project) {
+    const importFrom = url.searchParams.get(IMPORT_PARAM) || undefined;
+    pendingBook = { root: project, ...(importFrom ? { importFrom } : {}) };
+    url.searchParams.delete(BOOK_PARAM);
+    url.searchParams.delete(IMPORT_PARAM);
     history.replaceState(history.state, '', url.toString());
   }
 

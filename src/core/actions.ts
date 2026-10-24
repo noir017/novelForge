@@ -1,6 +1,8 @@
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveSectionDir, validateName } from './files/fileOps';
 import { getHost } from './host';
+import { bookDirName } from './model/bookDir';
 import { exists, pad3, sanitizeFileName } from './model/fs';
 import { Plot, emptyPlotSections } from './model/plotFile';
 import { isFallbackChapterTitle } from './model/pipeline';
@@ -38,6 +40,53 @@ export async function initProjectFlow(project: NovelProject, defaultTitle: strin
   // 主按钮已经明写着这件事（`deriveBookNextStep`）。这里再弹一个问句等于给出
   // 第二个入口，而它通向的是一个还没有架构可依据的空细纲。
   return true;
+}
+
+/**
+ * 新建一本书（独立版欢迎页「新建一本书」「导入写好的书」，2026-10-24）：在 `parentDir` 下建一个以书名命名的文件夹
+ * （{@link bookDirName}），初始化成小说工程，返回它的绝对路径。**不打开它**——开在这个窗口还是新窗口是壳的事。
+ *
+ * 结果与「打开文件夹 → 初始化小说工程」一样（同一份 `initializeProject`），只是一步到位：书名与作者在表单上一次填好，
+ * 不再先在目录选择器里建文件夹、再连弹两个输入框。同名文件夹已经在：空的就用它；已经是一本书、或者里面有东西，
+ * 一律报错退出（话直接进 toast），不往作者别的文件夹里铺模板（第 3 条）——那种走「打开文件夹」。
+ */
+export async function createBookAt(parentDir: string, meta: { title: string; author: string }): Promise<string> {
+  const title = meta.title.trim();
+  if (!title) {
+    throw new Error('书名不能为空。');
+  }
+  if (!parentDir.trim()) {
+    throw new Error('「放在」还空着：选一个放书的文件夹。');
+  }
+  const name = bookDirName(title);
+  if (!name) {
+    throw new Error(`「${title}」里的字都不能当文件夹名，换一个书名。`);
+  }
+  const root = path.join(path.resolve(parentDir), name);
+  let entries: string[] | undefined;
+  try {
+    entries = await fs.readdir(root);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOTDIR') {
+      throw new Error(`${root} 是一个文件，换个书名或位置。`);
+    }
+    if (code !== 'ENOENT') {
+      throw new Error(`${root} 读不了（${describeError(err)}）。`);
+    }
+  }
+  if (entries?.includes('.novelforge')) {
+    throw new Error(`${root} 已经是一本书了，用「打开文件夹」打开它。`);
+  }
+  if (entries && entries.length > 0) {
+    throw new Error(`${root} 已经有了，里面还有别的东西。换个书名或位置；要把它整个当成一本书，用「打开文件夹」。`);
+  }
+  // 文件夹不另建：`initializeProject` 的头一步 `scaffold` 递归建 `chapters/` 这几个固定目录，书的文件夹连同「放在」
+  // 那一路不在的父目录一并建出来（网关之外不多一处直接写盘，第 7 条）。
+  const project = NovelProject.open(root);
+  await new Workspace(project).initializeProject({ title, author: meta.author.trim() });
+  log.info(`新建了一本书《${title}》`, root);
+  return root;
 }
 
 /**

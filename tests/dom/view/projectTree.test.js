@@ -487,12 +487,13 @@ describe('章节组：一个章号一行', { skip: JSDOM_SKIP }, () => {
     assert.ok(dot.textContent === '·' && !dot.classList.contains('stale'), dot.outerHTML);
   });
 
+  // 新手上手（2026-10-24）：空书最常见的开头是自己写第 1 章或者把写好的书导进来，那一行先说这两样。
   test('没有章节时说清先做什么', () => {
     ui.post({ type: 'project', tree: { ...sampleTree(), plots: [], plotCount: 0, chapterCount: 0, totalWords: 0 } });
     const hint = [...ui.doc.querySelectorAll('#projectBody .group')]
       .find((g) => g.querySelector('.group-name')?.textContent === '章节')
       .querySelector('.row-empty');
-    assert.ok(hint && hint.textContent.includes('故事架构'), hint && hint.textContent);
+    assert.ok(hint && hint.textContent.includes('新建一章') && hint.textContent.includes('导入'), hint && hint.textContent);
     ui.post({ type: 'project', tree: sampleTree() });
   });
 });

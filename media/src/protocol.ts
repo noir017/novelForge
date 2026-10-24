@@ -11,6 +11,7 @@
 export type {
   ArchitectureRow,
   ArtifactKind,
+  BookInspection,
   BookView,
   IdeaDefaults,
   ThreadLineView,
@@ -115,6 +116,9 @@ export {
   DEFAULT_BOOK_FIND_SCOPES,
   isBookFindScope,
 } from '../../src/core/model/bookFindScope';
+
+/** 新建一本书时文件夹叫什么：表单上预览的与后端真建的同一个名字。`bookDir.ts` 是纯函数、零 import。 */
+export { bookDirName } from '../../src/core/model/bookDir';
 
 /** 「转到…」（Ctrl+P）的索引（`core/protocol/quickOpen.ts`）。 */
 export type {

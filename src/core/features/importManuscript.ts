@@ -8,14 +8,18 @@
  * - **接在已有章节之后**，章号按顺序重编（原书的「第一百章」不保留——一条轴，第 8 条）。
  * - **不覆盖**：`createChapter` 同名一律报错（第 3 条），撞上就停在那一章，前面导入的留着。
  * - 切的结果在确认框里给作者看（开头几章、结尾一章、丢掉了什么）；切得不对就改 txt 再来，不提供手调。
+ * - 欢迎页「导入写好的书」（2026-10-24）先 {@link inspectBookFile} 看切得出几章，把同一份说明摆在表单上，作者点了
+ *   「导入」才建工程，建好再带着那本书的绝对路径（`hostPath`）来这里——表单就是那一问，这里不再问第二遍。
  */
+import { readConfig } from '../config';
 import { getHost } from '../host';
 import { NovelProject } from '../model/project';
-import { ENCODING_LABEL, SplitChapter, splitChapters } from '../model/importText';
+import type { BookInspection } from '../protocol';
+import { ENCODING_LABEL, SplitChapter, SplitResult, splitChapters } from '../model/importText';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { Workspace } from '../workspace';
-import { formatWordCount, pickBookText, readBookText } from './bookText';
+import { BookText, formatWordCount, pickBookText, readBookFile, readBookText } from './bookText';
 import { checkpointBefore } from './checkpoint';
 import { deriveFromText } from './derive';
 
@@ -30,8 +34,68 @@ export interface ImportOutcome {
 
 const NONE: ImportOutcome = { imported: 0, calls: 0 };
 
-export async function importManuscript(project: NovelProject, opts: { path?: string } = {}): Promise<ImportOutcome> {
-  const source = await pickBookText(project, '导入原稿：选一本 txt', opts.path);
+export interface ImportOptions {
+  /** MCP 的 `book` 工具给的工程内相对路径：只认工程里能拆的 txt（`pickBookText`）。 */
+  path?: string;
+  /**
+   * 欢迎页「导入写好的书」：作者在本机选的那本的绝对路径。给了就不弹选择器，也不再问切分结果——
+   * 欢迎页的表单上已经摆过同一份说明（{@link inspectBookFile}），作者点了「导入」才走到这里。
+   */
+  hostPath?: string;
+}
+
+/** 认不出章标题时说的话：确认框之前的 toast 与欢迎页的表单同一句。 */
+function noHeadingsText(title: string): string {
+  return `《${title}》里认不出章节标题。每章开头要有单独一行的标题，如「第一章 雪夜」「第12章」「楔子」，改好再导入。`;
+}
+
+/** 认出几章、导入成第几章、丢掉了什么——确认框与欢迎页的表单同一份。 */
+function describeSplit(
+  book: BookText,
+  split: SplitResult,
+  start: number,
+  existing: number,
+  chaptersDir: string
+): { headline: string; detail: string[] } {
+  const chapters = split.chapters;
+  const end = start + chapters.length - 1;
+  const words = chapters.reduce((s, c) => s + c.words, 0);
+  const where = start === end ? `第 ${start} 章` : `第 ${start}–${end} 章`;
+  return {
+    headline: `从《${book.title}》认出 ${chapters.length} 章（${formatWordCount(words)}），导入为${where}`,
+    detail: [
+      `文件：${book.shown}（${ENCODING_LABEL[book.encoding]}）。`,
+      `开头：${chapters.slice(0, 3).map((c, i) => describe(start + i, c)).join('；')}${chapters.length > 3 ? '……' : ''}`,
+      chapters.length > 3 ? `结尾：${describe(end, chapters[chapters.length - 1])}。` : '',
+      split.preface.words > 0 ? `第一个章标题之前的 ${split.preface.words} 字（「${split.preface.head}」）不导入。` : '',
+      split.volumes.length > 0 ? `${split.volumes.length} 行卷标题（${split.volumes.slice(0, 2).join('、')}${split.volumes.length > 2 ? '……' : ''}）不算章，丢掉。` : '',
+      split.empty.length > 0 ? `${split.empty.length} 个标题下面没有正文（多半是目录），跳过。` : '',
+      existing > 0 ? `工程里已经有 ${existing} 章，接在第 ${start - 1} 章之后。` : '',
+      `每章新建一个 ${chaptersDir}/NNN-标题.txt，一段一行、去掉行首的空格；原 txt 不动。同名文件已经在就停下，不覆盖。`,
+      '切得不对？改 txt 里的章标题（每章开头单独一行，如「第一章 雪夜」）再导入一次。',
+    ].filter(Boolean),
+  };
+}
+
+/** 欢迎页「导入写好的书」挑好一本之后、建工程之前看一眼：切得出几章、导进新工程是什么样。不写任何文件。 */
+export async function inspectBookFile(abs: string): Promise<BookInspection> {
+  let book: BookText;
+  try {
+    book = await readBookFile(abs);
+  } catch (err) {
+    return { path: abs, title: '', chapters: 0, detail: [], error: describeError(err) };
+  }
+  const split = splitChapters(book.text);
+  if (split.chapters.length === 0) {
+    return { path: abs, title: book.title, chapters: 0, detail: [], error: noHeadingsText(book.title) };
+  }
+  // 新工程：从第 1 章起，没有已有的章；章节目录取设置里的（建工程时就用它）。
+  const { headline, detail } = describeSplit(book, split, 1, 0, readConfig().chaptersDir);
+  return { path: abs, title: book.title, chapters: split.chapters.length, headline, detail };
+}
+
+export async function importManuscript(project: NovelProject, opts: ImportOptions = {}): Promise<ImportOutcome> {
+  const source = opts.hostPath ?? (await pickBookText(project, '导入原稿：选一本 txt', opts.path));
   if (!source) {
     return NONE;
   }
@@ -45,42 +109,23 @@ export async function importManuscript(project: NovelProject, opts: { path?: str
   const split = splitChapters(book.text);
   if (split.chapters.length === 0) {
     log.warn(`《${book.title}》里认不出章节标题，没有导入`, book.shown);
-    getHost().toast(
-      `《${book.title}》里认不出章节标题。每章开头要有单独一行的标题，如「第一章 雪夜」「第12章」「楔子」，改好再导入。`,
-      'error'
-    );
+    getHost().toast(noHeadingsText(book.title), 'error');
     return NONE;
   }
 
   const existing = await project.listChapters();
   const start = existing.length === 0 ? 1 : Math.max(...existing.map((c) => c.order)) + 1;
   const chapters = split.chapters;
-  const end = start + chapters.length - 1;
-  const words = chapters.reduce((s, c) => s + c.words, 0);
-  const where = start === end ? `第 ${start} 章` : `第 ${start}–${end} 章`;
-  const pick = await getHost().confirm(
-    `从《${book.title}》认出 ${chapters.length} 章（${formatWordCount(words)}），导入为${where}？这一步不调用模型。`,
-    ['导入'],
-    {
+  const { headline, detail } = describeSplit(book, split, start, existing.length, project.config.chaptersDir);
+  if (opts.hostPath === undefined) {
+    const pick = await getHost().confirm(`${headline}？这一步不调用模型。`, ['导入'], {
       modal: true,
-      detail: [
-        `文件：${book.shown}（${ENCODING_LABEL[book.encoding]}）。`,
-        `开头：${chapters.slice(0, 3).map((c, i) => describe(start + i, c)).join('；')}${chapters.length > 3 ? '……' : ''}`,
-        chapters.length > 3 ? `结尾：${describe(end, chapters[chapters.length - 1])}。` : '',
-        split.preface.words > 0 ? `第一个章标题之前的 ${split.preface.words} 字（「${split.preface.head}」）不导入。` : '',
-        split.volumes.length > 0 ? `${split.volumes.length} 行卷标题（${split.volumes.slice(0, 2).join('、')}${split.volumes.length > 2 ? '……' : ''}）不算章，丢掉。` : '',
-        split.empty.length > 0 ? `${split.empty.length} 个标题下面没有正文（多半是目录），跳过。` : '',
-        existing.length > 0 ? `工程里已经有 ${existing.length} 章，接在第 ${start - 1} 章之后。` : '',
-        `每章新建一个 ${project.config.chaptersDir}/NNN-标题.md，一段一行、去掉行首的空格；原 txt 不动。同名文件已经在就停下，不覆盖。`,
-        '切得不对？改 txt 里的章标题（每章开头单独一行，如「第一章 雪夜」）再导入一次。',
-      ]
-        .filter(Boolean)
-        .join('\n'),
+      detail: detail.join('\n'),
+    });
+    if (pick !== '导入') {
+      log.info('作者取消了导入原稿');
+      return NONE;
     }
-  );
-  if (pick !== '导入') {
-    log.info('作者取消了导入原稿');
-    return NONE;
   }
 
   const ws = new Workspace(project);
@@ -124,6 +169,13 @@ export async function importManuscript(project: NovelProject, opts: { path?: str
   const done = imported === 0 ? '' : imported === 1 ? `第 ${start} 章` : `第 ${start}–${start + imported - 1} 章`;
   if (stopped) {
     getHost().toast(`${done ? `已导入${done}；` : ''}${stopped}。`, 'error');
+    return { imported, calls: 0 };
+  }
+  // 还没配模型（刚上手的多半如此）：补齐要调模型，问了也走不下去——说清先做什么，不弹一个点了就报错的框。
+  if (!readConfig().active) {
+    getHost().toast(
+      `已导入${done}。要照正文整理出细纲、角色卡、设定与剧情线，先到「设置」配一个模型，再点对话页的主按钮「从已写正文补齐」。`
+    );
     return { imported, calls: 0 };
   }
   const next = await getHost().confirm(

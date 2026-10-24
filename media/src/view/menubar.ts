@@ -14,6 +14,7 @@ import {
   closeFolder,
   hideWelcome,
   openRecent,
+  requestImportBook,
   requestNewProject,
   requestOpenFile,
   requestOpenFolder,
@@ -143,7 +144,8 @@ function entriesOf(key: string): MenuEntry[] {
   if (key === 'file') {
     return [
       { label: '新建文件', action: 'newFile', disabled: !ws, kbd: shortcutLabel('newFile') },
-      { label: '新建工程…', action: 'newProject' },
+      { label: '新建一本书…', action: 'newProject' },
+      { label: '导入写好的书（txt）…', action: 'importBook' },
       { label: 'sep' },
       { label: '打开文件…', action: 'openFile', disabled: !ws },
       quickOpenMenuEntry(),
@@ -327,6 +329,9 @@ function run(action: MenuAction): void {
       return;
     case 'newProject':
       requestNewProject();
+      return;
+    case 'importBook':
+      requestImportBook();
       return;
     case 'openFile':
       requestOpenFile();

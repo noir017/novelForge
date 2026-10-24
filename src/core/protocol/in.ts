@@ -267,6 +267,13 @@ export type InMessage =
       name?: string;
       /** 「批量拆细纲」弹窗上「拆完展开本批新设定」选了「是」（完善设定三期）：拆完后端再问一次次数。 */
       expandLore?: boolean;
+      /** `newChapter`：建完就打开它（工程页「章节」还空着时那颗「新建第 1 章」，2026-10-24）。 */
+      open?: boolean;
+      /**
+       * `importManuscript`：欢迎页「导入写好的书」在本机选的那本 txt 的绝对路径。给了就不再弹选择器、也不再问切分结果
+       * ——表单上已经摆过同一份说明（`features/importManuscript.ts` 的 `inspectBookFile`）。
+       */
+      hostPath?: string;
     }
   | { type: 'characterAction'; action: CharacterAction; name: string; relPath?: string }
   | {
@@ -317,6 +324,14 @@ export type InMessage =
    */
   | { type: 'listHostDir'; path: string }
   | { type: 'createHostDir'; parent: string; name: string }
+  /**
+   * 欢迎页「新建一本书」「导入写好的书」（2026-10-24）：在 `parent` 下建一个以书名命名的文件夹并初始化成工程
+   * （`core/actions.ts` 的 `createBookAt`），成了回 `projectCreated`，前端再照常打开它。`importFrom` 原样带回去：
+   * 打开之后接着把那本 txt 导进来。独立版专属，插件不会发。
+   */
+  | { type: 'createProject'; parent: string; title: string; author: string; importFrom?: string }
+  /** 欢迎页「导入写好的书」挑好一本之后、建工程之前：看切得出几章（回 `bookInspected`），不写任何文件。 */
+  | { type: 'inspectBook'; path: string }
   | { type: 'openFolder'; path: string; mode?: 'replace' | 'add' }
   | { type: 'closeFolder'; id?: string }
   | { type: 'activateWorkspace'; id: string }

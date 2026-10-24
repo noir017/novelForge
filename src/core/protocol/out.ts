@@ -302,7 +302,13 @@ export type OutMessage =
       recents: WorkspaceRecent[];
       /** 设置「新窗口中打开项目」。前端打开工程时据此决定换掉本窗口的工程还是开新窗口。 */
       openInNewWindow?: boolean;
+      /** 欢迎页「新建一本书」的「放在」缺省值：最近打开的那本书所在的目录，没有就是家目录。只有独立版给。 */
+      newProjectParent?: string;
     }
+  /** 「新建一本书」建好了（`createProject` 的回答；没建成只有一条 toast）。`importFrom` 是请求里原样带回来的。 */
+  | { type: 'projectCreated'; root: string; importFrom?: string }
+  /** 「导入写好的书」挑好的那一本切得出几章（`inspectBook` 的回答）。 */
+  | ({ type: 'bookInspected' } & BookInspection)
   /** 本机一层目录的列举结果。失败不另造消息，原因写在 `error`。 */
   | {
       type: 'hostDir';
@@ -323,6 +329,22 @@ export interface WorkspaceItem {
 export interface WorkspaceRecent {
   root: string;
   name: string;
+}
+
+/**
+ * 欢迎页「导入写好的书」挑好一本之后、建工程之前看的那一眼（`features/importManuscript.ts` 的 `inspectBookFile`）：
+ * 切得出几章、导进新工程是什么样。说明与「导入原稿」确认框上的同一份。
+ */
+export interface BookInspection {
+  path: string;
+  /** 书名：文件名去掉扩展名，表单上「书名」的缺省值。 */
+  title: string;
+  /** 认出几章；0 就不能导入，原因在 `error`。 */
+  chapters: number;
+  /** 「从《x》认出 N 章（…），导入为第 1–N 章」。 */
+  headline?: string;
+  detail: string[];
+  error?: string;
 }
 
 export interface HostDirEntry {

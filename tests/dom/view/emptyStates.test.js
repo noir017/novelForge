@@ -3,7 +3,7 @@
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 章节组 | 空分组、以及「下一章还没有细纲那一行」时写出全书的下一步（与主按钮同一句话）；按钮不直接花钱 |
+ * | 章节组 | 空分组先摆「新建第 N 章」（建完就打开）与「导入原稿…」，下面另起一行写全书的下一步；「下一章还没有细纲那一行」时也写下一步（与主按钮同一句话）；按钮不直接花钱 |
  * | 角色组 | 全书下一步正是角色图谱时说它；老工程（已有正文）给「提取角色卡…」；否则只说清从哪来 |
  * | 设定组 | 不说「下一步」（设定是可选的）；说明写清放什么、定稿时会记下出现了哪些设定；「＋ 设定」不调模型；有定稿过、还没记过设定的章时多一颗「补记设定…」 |
  * | 对话页 · 还不是小说工程 | 消息区换成「下一步：初始化」那一块，按钮与工程页那颗同一个动作；页脚不再写 VS Code 命令名 |
@@ -19,6 +19,7 @@ const { mount, JSDOM_SKIP, emptySession, sampleTree, viewState } = require('../.
 const groupOf = (ui, name) =>
   [...ui.doc.querySelectorAll('#projectBody .group')].find((g) => g.querySelector('.group-name')?.textContent === name);
 const hintIn = (ui, name) => groupOf(ui, name).querySelector('.row-empty');
+const nextIn = (ui, name) => groupOf(ui, name).querySelector('.row-next-step');
 const buttonsIn = (node) => [...node.querySelectorAll('button')].map((b) => b.textContent);
 const buttonIn = (node, label) => [...node.querySelectorAll('button')].find((b) => b.textContent === label);
 const formOpen = (ui) => !ui.doc.getElementById('providerModal').classList.contains('hidden');
@@ -99,12 +100,35 @@ describe('W12 · 章节组写出全书的下一步', { skip: JSDOM_SKIP }, () =>
 
   test('空分组：「下一步：」后面就是主按钮那一句', () => {
     ui.post({ type: 'project', tree: blankTree({ next: STEPS.premise }) });
-    assert.equal(hintIn(ui, '章节').querySelector('.row-hint-text').textContent, '下一步：生成故事前提');
+    assert.equal(nextIn(ui, '章节').querySelector('.row-hint-text').textContent, '下一步：生成故事前提');
+  });
+
+  // 新手上手（2026-10-24）：编辑器为主，空书最常见的开头是自己写第 1 章或者把写好的书导进来——摆在下一步上面。
+  test('空分组先摆「新建第 N 章」「导入原稿…」，下一步另起一行在它下面', () => {
+    const rows = [...groupOf(ui, '章节').querySelectorAll('.row-empty')];
+    assert.equal(rows.length, 2);
+    assert.ok(rows[0].textContent.startsWith('还没有章节'), rows[0].textContent);
+    assert.ok(!rows[0].classList.contains('row-next-step'));
+    assert.deepEqual(buttonsIn(rows[0]), ['新建第 4 章', '导入原稿…']);
+    assert.ok(rows[1].classList.contains('row-next-step'));
+  });
+
+  test('「新建第 N 章」带 open（建完就打开），「导入原稿…」走工程动作；都不发 send', () => {
+    const row = hintIn(ui, '章节');
+    ui.sent.length = 0;
+    ui.clickEl(buttonIn(row, '新建第 4 章'));
+    const made = ui.last('projectAction');
+    assert.equal(made?.action, 'newChapter');
+    assert.equal(made?.open, true);
+    ui.clickEl(buttonIn(row, '导入原稿…'));
+    assert.equal(ui.last('projectAction')?.action, 'importManuscript');
+    assert.equal(ui.last('projectAction')?.hostPath, undefined);
+    assert.ok(!ui.last('send'), JSON.stringify(ui.sent));
   });
 
   test('架构那几件：「去生成」进入那一层，不发 send', () => {
     ui.sent.length = 0;
-    ui.clickEl(buttonIn(hintIn(ui, '章节'), '去生成'));
+    ui.clickEl(buttonIn(nextIn(ui, '章节'), '去生成'));
     assert.deepEqual(ui.last('setTarget')?.target, { kind: 'setting', doc: 'premise' });
     assert.ok(!ui.last('send'), JSON.stringify(ui.sent));
   });
@@ -112,7 +136,7 @@ describe('W12 · 章节组写出全书的下一步', { skip: JSDOM_SKIP }, () =>
   test('小说配置：「去生成」打开一句话弹窗，默认值是后端给的', () => {
     ui.post({ type: 'project', tree: blankTree({ next: STEPS.config }) });
     ui.sent.length = 0;
-    ui.clickEl(buttonIn(hintIn(ui, '章节'), '去生成'));
+    ui.clickEl(buttonIn(nextIn(ui, '章节'), '去生成'));
     assert.ok(formOpen(ui));
     assert.equal(ui.doc.querySelector('.nf-form [data-key="idea"]').value, '少年入宗');
     assert.ok(!ui.last('send') && !ui.last('setTarget'), JSON.stringify(ui.sent));
@@ -122,7 +146,7 @@ describe('W12 · 章节组写出全书的下一步', { skip: JSDOM_SKIP }, () =>
   test('拆细纲：「拆细纲…」打开拆细纲弹窗（调用次数写在弹窗上）', () => {
     ui.post({ type: 'project', tree: blankTree({ next: STEPS.plots }) });
     ui.sent.length = 0;
-    const row = hintIn(ui, '章节');
+    const row = nextIn(ui, '章节');
     assert.equal(row.querySelector('.row-hint-text').textContent, '下一步：拆细纲（第 1–5 章）');
     ui.clickEl(buttonIn(row, '拆细纲…'));
     assert.ok(formOpen(ui));
@@ -130,12 +154,13 @@ describe('W12 · 章节组写出全书的下一步', { skip: JSDOM_SKIP }, () =>
     closeForm(ui);
   });
 
-  // 没有 next（老快照、或者全书写完了）：退回原来那句，不画一个空的「下一步：」。
-  test('没有下一步时退回原来的说明', () => {
+  // 没有 next（老快照、或者全书写完了）：只剩新建 / 导入那一行，不画一个空的「下一步：」。
+  test('没有下一步时只有新建 / 导入那一行', () => {
     ui.post({ type: 'project', tree: blankTree() });
-    const row = hintIn(ui, '章节');
-    assert.ok(row.textContent.includes('故事架构') && !row.textContent.startsWith('下一步'), row.textContent);
-    assert.deepEqual(buttonsIn(row), []);
+    assert.equal(nextIn(ui, '章节'), null);
+    const rows = [...groupOf(ui, '章节').querySelectorAll('.row-empty')];
+    assert.equal(rows.length, 1);
+    assert.deepEqual(buttonsIn(rows[0]), ['新建第 4 章', '导入原稿…']);
   });
 
   // 章节不空，但下一章那一行还不存在（拆细纲那一档）：「去写这一章」挂不上，组末补一句。

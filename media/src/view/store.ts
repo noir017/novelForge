@@ -34,6 +34,8 @@ export const store: {
   recents: { root: string; name: string }[];
   /** 设置「新窗口中打开项目」（独立版，随 `workspaces` 推来）。 */
   openInNewWindow: boolean;
+  /** 「新建一本书」的「放在」缺省值（独立版，随 `workspaces` 推来）。 */
+  newProjectParent?: string;
 } = {
   state: null,
   // 会话的初值与后端 `SessionStore.create()` 对齐：情节大纲 · 讨论。

@@ -14,6 +14,7 @@ export type {
 } from './in';
 
 export type {
+  BookInspection,
   EditorCrumb,
   EditorFileLabel,
   EditorFileView,

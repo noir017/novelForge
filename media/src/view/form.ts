@@ -24,6 +24,19 @@ export type FormField =
       /** 空着不许提交。 */
       required?: boolean;
     }
+  /**
+   * 一行字（新建一本书的书名、作者、放在哪）。单按 Enter 就提交。`browse` 在框右边多一颗按钮（「选…」开目录选择器），
+   * 选好了用 `set` 填回框里。
+   */
+  | {
+      kind: 'text';
+      key: string;
+      label: string;
+      value?: string;
+      placeholder?: string;
+      required?: boolean;
+      browse?: { label: string; run(current: string, set: (value: string) => void): void };
+    }
   | { kind: 'number'; key: string; label: string; value?: number; min?: number; max?: number; step?: number }
   /** 几选一（批量写章的模式、这一次用哪个模型）。值是字符串。 */
   | { kind: 'select'; key: string; label: string; value?: string; options: SelectOption[] };
@@ -61,6 +74,8 @@ export interface FormSpec {
   title: string;
   /** 字段上方的一句说明。 */
   lead?: string;
+  /** 说明下面再列几行小字（导入写好的书：开头几章、丢掉了什么）。 */
+  details?: string[];
   fields: FormField[];
   /**
    * 实时说明：任何一个值变了就重算（全书字数、跳过几章、调用几次）。
@@ -97,6 +112,13 @@ export function openForm(spec: FormSpec): void {
   if (spec.lead) {
     form.appendChild(mk('p', 'hint form-lead', spec.lead));
   }
+  if (spec.details?.length) {
+    const list = mk('ul', 'hint form-details');
+    for (const line of spec.details) {
+      list.appendChild(mk('li', undefined, line));
+    }
+    form.appendChild(list);
+  }
 
   const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>();
   const grid = mk('div', 'grid');
@@ -107,6 +129,30 @@ export function openForm(spec: FormSpec): void {
     if (f.kind === 'select') {
       input = buildSelect(f.options, f.value);
       grid.appendChild(label);
+    } else if (f.kind === 'text') {
+      const line = mk('input');
+      line.type = 'text';
+      line.placeholder = f.placeholder ?? '';
+      line.value = f.value ?? '';
+      line.spellcheck = false;
+      input = line;
+      // 一行字也占满一整行（路径常常很长）；带「选…」时框与按钮并排。
+      if (f.browse) {
+        const row = mk('div', 'field-row');
+        row.appendChild(line);
+        const browse = f.browse;
+        const btn = mk('button', 'chip-btn', browse.label);
+        btn.type = 'button';
+        btn.addEventListener('click', () =>
+          browse.run(line.value, (v) => {
+            line.value = v;
+            line.dispatchEvent(new Event('input', { bubbles: true }));
+          })
+        );
+        row.appendChild(btn);
+        label.appendChild(row);
+      }
+      form.appendChild(label);
     } else if (f.kind === 'textarea') {
       const ta = mk('textarea');
       ta.rows = f.rows ?? 4;
@@ -126,7 +172,9 @@ export function openForm(spec: FormSpec): void {
       grid.appendChild(label);
     }
     input.dataset.key = f.key;
-    label.appendChild(input);
+    if (!input.parentElement) {
+      label.appendChild(input);
+    }
     inputs.set(f.key, input);
   }
   if (grid.childElementCount > 0) {
@@ -146,7 +194,7 @@ export function openForm(spec: FormSpec): void {
   };
   const missing = (v: FormValues): string | undefined => {
     for (const f of spec.fields) {
-      if (f.kind === 'textarea' && f.required && !String(v[f.key]).trim()) {
+      if ((f.kind === 'textarea' || f.kind === 'text') && f.required && !String(v[f.key]).trim()) {
         return `「${f.label}」还空着。`;
       }
       if (f.kind === 'number') {
@@ -217,8 +265,9 @@ export function openForm(spec: FormSpec): void {
     refresh();
   });
   form.addEventListener('keydown', (e) => {
-    // Ctrl/⌘+Enter 提交：多行文本里单按 Enter 是换行。
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    // Ctrl/⌘+Enter 提交：多行文本里单按 Enter 是换行。一行字的框里单按 Enter 就提交（输入法还在组字时那一下是选字）。
+    const inLine = (e.target as HTMLElement | null)?.matches?.('input[type="text"]') === true;
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || (inLine && !e.isComposing))) {
       e.preventDefault();
       trySubmit();
     }

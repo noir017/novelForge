@@ -12,14 +12,14 @@
 | [cli.ts](cli.ts) | 参数解析：`novelforge`（空窗口）/ `novelforge [dir]` / `novelforge init [dir]`，外加 `--port` / `--host` / `--no-open` / `--verbose`。不带位置参数时不再把当前目录当成工程。令牌不走参数（会出现在 `ps` 里）。 |
 | [auth.ts](auth.ts) | 访问控制（纯函数）：什么时候必须配令牌（`exposureError`）、Bearer / cookie 认不认、Origin 白名单、登录页与 `/login`。 |
 | [server.ts](server.ts) | `Bun.serve`：`/` 出页面、`/media/*` 出内嵌资源、`/favicon.ico`、`/ws` WebSocket、`/mcp`（外部 agent 的 MCP 入口，见 [core/mcp](../../core/mcp/README.md)）。每条 WebSocket 是一个窗口，握手地址上的 `?project=` 说它开哪个工程；不带工程的 `/` 302 到最近操作的那个工程。消息全交给 `WorkspaceHub.receive`。启动时把 core 的日志接到终端（默认 info 及以上，`--verbose` 放开 debug）。 |
-| [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：同时开几个工程，每个窗口各绑一个（或空着），同一个工程的几个窗口共用一份 `ChatController`；吃掉打开/关闭文件夹与设置类消息；没有窗口的工程空闲一分钟后关（最近操作的那个留着给 MCP）。 |
+| [workspaceHub.ts](workspaceHub.ts) | 工作区登记处：同时开几个工程，每个窗口各绑一个（或空着），同一个工程的几个窗口共用一份 `ChatController`；吃掉打开/关闭文件夹与设置类消息；没有窗口的工程空闲一分钟后关（最近操作的那个留着给 MCP）。欢迎页的「新建一本书」「导入写好的书」也在这里：`createProject` 经 `core/actions.ts` 的 `createBookAt` 建文件夹并初始化、回 `projectCreated`（真实路径，打开由前端照常发 `openFolder`），`inspectBook` 回那本 txt 切得出几章；`workspaces` 另带「放在」的缺省值 `newProjectParent`（最近那本书所在的目录，没有就是家目录）。 |
 | [scopedHost.ts](scopedHost.ts) | 注册给 core 的全局 Host：按 `AsyncLocalStorage` 里的窗口上下文把 `getHost()` 转给那个窗口自己的 `FileHost`，弹窗、toast、打开编辑器只落到对应的网页上。 |
 | [windowState.ts](windowState.ts) | `~/.novelforge/window.json`：上次打开的目录与最近打开列表。 |
 | [hostFs.ts](hostFs.ts) | 本机一层目录列举与选择器「新建文件夹」。不进 core，agent 拿不到。 |
 | [fileHost.ts](fileHost.ts) | `Host` 的实现：弹窗经 `PromptHub` 变成网页 modal（确认框一个 action 一颗按钮，回的是按钮上的字；`confirmCall` 同一个确认框带 `call`，回答另带 `choice`——作者为这一次挑的模型与详细度）；`fs.watch` 监听工程（失败退化为轮询，带 250ms 去抖）；`openFile` 走内置编辑器；`openBeside` 开在第二块编辑区。`progress` 只提供 signal——进度由 `core/runtime/progress.ts` 结构化推给网页。`bind` / `unbind` 随 Hub 热换工程根。 |
 | [promptHub.ts](promptHub.ts) | 未决网页弹窗的登记与回执匹配。WS 全部断开时一律按取消处理。 |
 | [terminalHost.ts](terminalHost.ts) | `Host` 的终端实现，只给 `novelforge init` 用：问答走 readline，`openFile` 报一句路径。有了它，CLI 只是「第三个宿主」，「初始化工程」这条流程仍然只有一份实现。 |
-| [page.ts](page.ts) | **布局**：标题栏（文件 / 编辑 / 视图 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器；无工程时编辑器区是 Get Started。六个 pane 的 DOM 全部取自 [../shared/panes.ts](../shared/panes.ts)（含只有这里装配的「文件」页），这里没有第二份。 |
+| [page.ts](page.ts) | **布局**：标题栏（文件 / 编辑 / 视图 / 帮助）+ 活动栏 + 侧栏 + 内置编辑器；无工程时编辑器区是欢迎页（开始三条路——新建一本书、导入写好的书、打开文件夹——、最近、怎么上手，「帮助 → 欢迎页面」随时再打开）。六个 pane 的 DOM 全部取自 [../shared/panes.ts](../shared/panes.ts)（含只有这里装配的「文件」页），这里没有第二份。 |
 | [assets.ts](assets.ts) | `/media/*` 的字节来源（内嵌资源表）。与 `page.ts` 分开：拼一段 HTML 不该牵进那个几十 MB 的生成文件。 |
 | [systemOpen.ts](systemOpen.ts) | 交给系统默认程序打开（`explorer` / `open` / `xdg-open`）。开浏览器与编辑器的「外部打开」共用这一份。 |
 | `mediaAssets.ts` | **生成文件**（已 gitignore）。由 [../../scripts/embed-media.js](../../../scripts/embed-media.js) 把前端资源 base64 内嵌（`.js` / `.css` 取自构建产物 `dist/media/`，`icon.svg` 取自 `media/`），使单文件可执行不依赖外部资源。`npm run typecheck` / `test:e2e` / `dist` 前会自动生成。 |

@@ -1,7 +1,10 @@
 import * as fsSync from 'node:fs';
 import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { ChatController, ViewHost, createMcpBackend } from '../../core/controller';
+import { createBookAt } from '../../core/actions';
+import { inspectBookFile } from '../../core/features/importManuscript';
 import type { NovelProject } from '../../core/model/project';
 import { Workspace } from '../../core/workspace';
 import { readConfig } from '../../core/config';
@@ -162,6 +165,7 @@ export class WorkspaceHub {
     items: WorkspaceItem[];
     recents: WorkspaceRecent[];
     openInNewWindow: boolean;
+    newProjectParent: string;
   } {
     const recents = readWindowState(this.windowDir).recents.map((r) => ({
       root: r.root,
@@ -173,6 +177,7 @@ export class WorkspaceHub {
       items: rt ? [{ id: rt.id, root: rt.root, name: rt.name }] : [],
       recents,
       openInNewWindow: readConfig().openInNewWindow,
+      newProjectParent: newProjectParent(recents),
     };
   }
 
@@ -272,6 +277,12 @@ export class WorkspaceHub {
       case 'createHostDir':
         conn.send({ type: 'hostDir', ...(await createHostDir(msg.parent, msg.name)) });
         return true;
+      case 'createProject':
+        await this.createProject(conn, msg);
+        return true;
+      case 'inspectBook':
+        conn.send({ type: 'bookInspected', ...(await inspectBookFile(msg.path)) });
+        return true;
       case 'openFolder':
         await this.openIn(conn, msg.path, { mode: msg.mode });
         return true;
@@ -317,7 +328,9 @@ export class WorkspaceHub {
         // 独立版没有原生设置页：空窗口也要吃掉这条，避免落到「请先打开文件夹」。
         return true;
       case 'checkEditorFiles':
-        // 编辑器在后台核对磁盘：空窗口里没有工程可核对，静静吃掉，别为它弹「请先打开文件夹」。
+      case 'listDir':
+        // 编辑器在后台核对磁盘、「文件」页一装好就要根目录：空窗口里都没有工程可读，静静吃掉，别为它弹「请先打开文件夹」
+        // ——从前欢迎页一打开右下角就挂着这一句红字，新人第一眼看到的是报错（2026-10-24）。
         if (!rt) {
           return true;
         }
@@ -683,6 +696,23 @@ export class WorkspaceHub {
   }
 
   /**
+   * 欢迎页「新建一本书」「导入写好的书」：建文件夹、初始化（`createBookAt`），成了回 `projectCreated`，由前端照常打开
+   * ——开在这个窗口还是新窗口看「新窗口中打开项目」，那是前端 `openProject` 的事。没建成只说一句，什么都不回。
+   */
+  private async createProject(conn: WindowConn, msg: Extract<InMessage, { type: 'createProject' }>): Promise<void> {
+    let root: string;
+    try {
+      // 回真实路径：与打开之后 `workspaces` 的 `currentId` 同一个口径，前端据此认出「换成的就是这一本」。
+      root = await fsp.realpath(await createBookAt(expandHome(msg.parent), { title: msg.title, author: msg.author }));
+    } catch (err) {
+      log.warn('新建一本书没建成', describeError(err));
+      conn.send({ type: 'toast', message: describeError(err), level: 'error' });
+      return;
+    }
+    conn.send({ type: 'projectCreated', root, ...(msg.importFrom ? { importFrom: msg.importFrom } : {}) });
+  }
+
+  /**
    * 有工程且根下有 README → 内置编辑器打开。
    * 否则找产品仓库根的 README 交给系统打开。都没有则 toast。
    */
@@ -709,6 +739,33 @@ export class WorkspaceHub {
     }
     conn.host.toast('找不到使用说明', 'error');
   }
+}
+
+/**
+ * 「新建一本书」的「放在」缺省值：最近打开的那本书所在的目录（书多半放在一处），那个目录已经不在了、或者一本都没打开过，
+ * 就是家目录（Docker 里是 `/data`，书也放在那下面）。
+ */
+function newProjectParent(recents: WorkspaceRecent[]): string {
+  for (const r of recents) {
+    const parent = path.dirname(r.root);
+    try {
+      if (fsSync.statSync(parent).isDirectory()) {
+        return parent;
+      }
+    } catch {
+      // 下一本
+    }
+  }
+  return os.homedir();
+}
+
+/** 表单上手打的 `~/小说` 也认。 */
+function expandHome(p: string): string {
+  const trimmed = p.trim();
+  if (trimmed === '~') {
+    return os.homedir();
+  }
+  return /^~[\\/]/.test(trimmed) ? path.join(os.homedir(), trimmed.slice(2)) : trimmed;
 }
 
 function normalizePath(p: string): string {

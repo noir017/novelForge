@@ -127,23 +127,32 @@ ${settingsPane(caps)}
 
     <!-- 查找替换条不写在这里：两块编辑区的那一条都由 editor.js 的 find.ts 现造（DOM 只生成一份）。 -->
     <div class="ed-stage">
+      <!-- 欢迎页（2026-10-24 新手上手）：开始的三条路、最近打开、一段怎么上手。不是强制的引导，看一眼就能开写；
+           「帮助 → 欢迎页面」随时再打开。「新建一本书」「导入写好的书」各是一张表单，见 media/src/view/welcome.ts。 -->
       <div class="nf-welcome" id="nfWelcome">
         <div class="nf-welcome-col">
-          <h2>Start</h2>
-          <button type="button" class="nf-welcome-link" data-welcome="newProject">新建工程…</button>
+          <h2>开始</h2>
+          <button type="button" class="nf-welcome-link" data-welcome="newProject">新建一本书…</button>
+          <button type="button" class="nf-welcome-link" data-welcome="importBook">导入写好的书（txt）…</button>
           <button type="button" class="nf-welcome-link" data-welcome="openFolder">打开文件夹…</button>
         </div>
         <div class="nf-welcome-col">
-          <h2>Recent</h2>
+          <h2>最近</h2>
           <ul class="nf-recent" id="nfRecentList"></ul>
         </div>
         <div class="nf-welcome-col nf-welcome-copy">
-          <h2>Novel Forge</h2>
-          <p>从一句念头开始，先定架构、排大纲、拆细纲，再一章一章写成正文。</p>
+          <h2>怎么上手</h2>
+          <p>写长篇小说的编辑器，边写边把整本书整理清楚。</p>
+          <ol class="nf-welcome-steps">
+            <li><strong>写新书</strong>：「新建一本书」起个书名，再在「工程 → 章节」里新建第 1 章，右边就能写。</li>
+            <li><strong>已经写好的书</strong>：「导入写好的书」挑一本 txt，按「第一章 雪夜」这样单独一行的章标题切成一章一份。</li>
+            <li><strong>让它帮你整理</strong>：到「设置」配一个模型。导入的书点对话页的主按钮「从已写正文补齐」；之后每写完一章点一下「同步」，细纲、角色卡、设定、剧情线就跟到这一章。</li>
+            <li>光写字不需要模型。书就是文件夹里的普通文件，可以拿 Git 备份；已经在用的书用「打开文件夹」。</li>
+          </ol>
           <dl>
             <dt><kbd>Ctrl</kbd>+<kbd>O</kbd></dt><dd>打开文件夹</dd>
-            <dt><kbd>Ctrl</kbd>+<kbd>S</kbd></dt><dd>保存当前文件</dd>
-            <dt><kbd>Enter</kbd></dt><dd>在左侧发送消息</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>P</kbd></dt><dd>转到一章或一个文件</dd>
+            <dt><kbd>Ctrl</kbd>+<kbd>/</kbd></dt><dd>快捷键一览</dd>
           </dl>
         </div>
       </div>

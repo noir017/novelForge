@@ -204,6 +204,14 @@ describe('WorkspaceHub：一个窗口', () => {
     assert.equal(other.ofType('hostDir').length, 0);
   });
 
+  test('空窗口里「文件」页要根目录、编辑器核对磁盘：静静吃掉，不弹「请先打开文件夹」', async () => {
+    const w = await openWindow();
+    w.clear();
+    await w.send({ type: 'listDir', dirs: [''] });
+    await w.send({ type: 'checkEditorFiles', files: [] });
+    assert.equal(w.ofType('toast').length, 0);
+  });
+
   test('空窗口 ready 不发 init', async () => {
     const w = await openWindow();
     w.clear();
@@ -379,6 +387,73 @@ describe('WorkspaceHub：几个窗口', () => {
     assert.equal(b.last('settings').settings.openInNewWindow, false);
     await a.send({ type: 'saveSettings', settings: { ...current, openInNewWindow: true } });
     assert.equal(b.last('workspaces').openInNewWindow, true);
+  });
+});
+
+// 欢迎页「新建一本书」「导入写好的书」（2026-10-24）。
+describe('WorkspaceHub：欢迎页新建一本书', () => {
+  test('createProject：在「放在」下建好、初始化，只回 projectCreated（打开由前端照常发 openFolder）', async () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-hub-new-'));
+    try {
+      const w = await openWindow();
+      const other = await openWindow();
+      await w.send({ type: 'createProject', parent, title: '雪夜', author: '某某', importFrom: '/tmp/原稿.txt' });
+      const made = w.last('projectCreated');
+      // 真实路径：与打开之后的 currentId 同一个口径。
+      assert.equal(made.root, real(path.join(parent, '雪夜')));
+      assert.equal(made.importFrom, '/tmp/原稿.txt');
+      const manifest = JSON.parse(fs.readFileSync(path.join(parent, '雪夜', '.novelforge', 'project.json'), 'utf8'));
+      assert.equal(manifest.title, '雪夜');
+      assert.equal(manifest.author, '某某');
+      // 还没打开：开在这个窗口还是新窗口是前端的事。
+      assert.equal(hub.snapshot(w.conn).currentId, null);
+      assert.equal(other.ofType('projectCreated').length, 0);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  test('createProject 没建成：只回这个窗口一条 toast，不回 projectCreated', async () => {
+    const w = await openWindow(projA);
+    // projA 里已经有 note-a.txt：拿它的上一层当「放在」、它的名字当书名，撞上一个有东西的同名文件夹。
+    await w.send({ type: 'createProject', parent: path.dirname(projA), title: path.basename(projA), author: '' });
+    assert.equal(w.ofType('projectCreated').length, 0);
+    assert.ok(w.ofType('toast').some((m) => m.level === 'error' && m.message.includes('里面还有别的东西')));
+    assert.equal(hub.snapshot(w.conn).currentId, real(projA));
+  });
+
+  test('inspectBook：回切得出几章，不写任何文件', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-hub-book-'));
+    try {
+      const book = path.join(dir, '青云剑录.txt');
+      fs.writeFileSync(book, '第一章 入宗\n林昭站在山门前。\n第二章 雪夜\n雪下了一夜。', 'utf8');
+      const w = await openWindow();
+      await w.send({ type: 'inspectBook', path: book });
+      const r = w.last('bookInspected');
+      assert.equal(r.path, book);
+      assert.equal(r.title, '青云剑录');
+      assert.equal(r.chapters, 2);
+      assert.match(r.headline, /认出 2 章/);
+      assert.deepEqual(fs.readdirSync(dir), ['青云剑录.txt']);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('workspaces 带「放在」的缺省值：最近打开的那本书所在的目录', async () => {
+    const w = await openWindow(projA);
+    assert.equal(w.last('workspaces').newProjectParent, path.dirname(real(projA)));
+  });
+
+  test('一本都没打开过：缺省是家目录', async () => {
+    const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-hub-win2-'));
+    try {
+      const other = new WorkspaceHub({ config, windowDir: fresh, idleMs: 20 });
+      assert.equal(other.snapshot().newProjectParent, os.homedir());
+      await other.closeAll();
+    } finally {
+      fs.rmSync(fresh, { recursive: true, force: true });
+    }
   });
 });
 
