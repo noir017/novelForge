@@ -17,4 +17,6 @@ src/shells/standalone/mediaAssets.ts
 src/core/skills/builtin/embedded.ts
 src/shells/desktop/target
 src/shells/desktop/binaries
+# Android 壳（Java + gradle，构建时还会放进 90 MB 的 node）与镜像无关
+src/shells/android
 sample-novel/.novelforge/sessions

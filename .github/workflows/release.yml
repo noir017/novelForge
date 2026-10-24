@@ -2,8 +2,8 @@
 #
 # 与 app.yml 的分工：app.yml 是手动点的桌面壳构建（日常验证「还能编出来」），
 # 这个文件是**发版**时才跑的一条完整流水线——桌面安装包 + VS Code 扩展
-# .vsix + 独立版单文件可执行，汇总成一个 GitHub Release 草稿；另外调 docker.yml
-# 往 GHCR 推独立版的 Docker 镜像。
+# .vsix + 独立版单文件可执行 + Android 安装包（调 android.yml），汇总成一个 GitHub Release 草稿；
+# 另外调 docker.yml 往 GHCR 推独立版的 Docker 镜像。
 #
 # 版本号只记在仓库根 package.json 一处（tauri.conf.json 指过去，独立版编译时写进程序）。
 # 发版在本地做：`npm version patch|minor|major` 先跑全量测试，再改版本号、提交、打 tag，
@@ -214,9 +214,21 @@ jobs:
       contents: read
       packages: write
 
-  # ── 5) 汇总成 Release ───────────────────────────────────────────
+  # ── 5) Android 安装包 ───────────────────────────────────────────
+  # 整条流程在 android.yml 里（手动点出 debug 包也走它）。发版密钥在仓库 secrets 里，缺了这一步就失败，
+  # 整个 Release 停下——不能退回 debug 签名，签名不同的包装过的人升不了级。
+  android:
+    needs: version
+    uses: ./.github/workflows/android.yml
+    with:
+      release: true
+    secrets:
+      NOVELFORGE_KEYSTORE_BASE64: ${{ secrets.NOVELFORGE_KEYSTORE_BASE64 }}
+      NOVELFORGE_KEYSTORE_PASSWORD: ${{ secrets.NOVELFORGE_KEYSTORE_PASSWORD }}
+
+  # ── 6) 汇总成 Release ───────────────────────────────────────────
   release:
-    needs: [version, bundles, desktop]
+    needs: [version, bundles, desktop, android]
     runs-on: ubuntu-latest
     steps:
       # 按名字只取 bundles 与 desktop-*，不能不带名字全拉：docker job 里的
@@ -230,6 +242,10 @@ jobs:
         with:
           name: bundles
           path: artifacts/bundles
+      - uses: actions/download-artifact@v4
+        with:
+          name: android
+          path: artifacts/android
 
       # 三个 job 的产物散在各自子目录里，摊平到一层、统一改名再上传。
       #
@@ -237,7 +253,8 @@ jobs:
       # `Novel.Forge_0.2.6_x64-setup.exe`；vsce 是 `novel-forge-0.2.6.vsix`；独立版不带版本号），
       # Windows 下桌面安装器和独立版又都是 .exe，下载页上分不出谁是谁。一律改成
       # `NovelForge-<版本>-<形态>-<系统>-<架构>`：形态是 desktop（桌面版，装了双击打开）、
-      # server（独立版，跑起来用浏览器打开）、vscode（插件）；架构一律写 x64（deb 叫 amd64、rpm 叫 x86_64）。
+      # server（独立版，跑起来用浏览器打开）、vscode（插件）、android（手机 app，内置的 node 只有 arm64）；
+      # 桌面与独立版的架构一律写 x64（deb 叫 amd64、rpm 叫 x86_64）。
       # 只在这里改：前面各 job 的中间产物名照旧（.vscodeignore 按 dist/novelforge* 排除独立版）。
       # 每个源文件必须正好一个，产物多了、少了都停下，不静默漏传。
       - name: 摊平产物并统一改名
@@ -262,6 +279,7 @@ jobs:
           put 'novelforge-windows-x64.exe' "$p-server-windows-x64.exe"
           put 'novelforge-linux-x64'       "$p-server-linux-x64"
           put '*.vsix'                     "$p-vscode.vsix"
+          put 'novelforge-android.apk'     "$p-android-arm64.apk"
           total="$(find artifacts -type f | wc -l)"
           if [ "$total" -ne "$(ls out | wc -l)" ]; then
             echo "::error::产物里有 $total 个文件，只认领了 $(ls out | wc -l) 个——新的产物要在上面加一行改名"

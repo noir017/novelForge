@@ -75,7 +75,7 @@ describe('shells/shared 零宿主依赖', () => {
   });
 
   test('不反向依赖任何一个具体的壳', () => {
-    const bad = files.filter((p) => /from\s+['"]\.\.\/(vscode|standalone|desktop)\//.test(code(p)));
+    const bad = files.filter((p) => /from\s+['"]\.\.\/(vscode|standalone|desktop|android)\//.test(code(p)));
     assert.deepEqual(bad.map(rel), [], '共享骨架反过来依赖了某个壳');
   });
 });
@@ -107,6 +107,10 @@ describe('壳与壳之间不互相 import', () => {
 
   test('桌面壳里没有 TS——它复用独立版靠的是把它当 sidecar 起，不是 import', () => {
     assert.deepEqual(sourcesOf('desktop').map(rel), []);
+  });
+
+  test('Android 壳里也没有 TS——内置服务端是独立版打成的 node 单文件，当子进程起', () => {
+    assert.deepEqual(sourcesOf('android').map(rel), []);
   });
 });
 

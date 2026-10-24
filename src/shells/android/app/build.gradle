@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 版本号只记在仓库根 package.json（tests/contract/version.test.js 守着）：0.2.8 → versionCode 208
+def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../../../package.json')).version
+def (vMajor, vMinor, vPatch) = appVersion.tokenize('.')[0..2]*.toInteger()
+
+// 发版签名：CI 从 secrets 还原 keystore 后经环境变量传进来。没有就退回 debug 签名（本地自用）——
+// 两种签名的包不能互相覆盖安装，发出去的包必须一直用同一把发版密钥
+def releaseKeystore = System.getenv('NOVELFORGE_KEYSTORE')
+
+android {
+    namespace 'io.github.noir017.novelforge'
+    // arm64 Linux 上只能用 Debian 的 aapt2（Android 14），读不了 android-35 的 android.jar，所以停在 34
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.noir017.novelforge'
+        minSdk 26
+        targetSdk 34
+        versionCode vMajor * 10000 + vMinor * 100 + vPatch
+        versionName appVersion
+        // 内置服务端的 node 取自 Termux，只有 arm64
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseKeystore) {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('NOVELFORGE_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('NOVELFORGE_KEY_ALIAS') ?: 'novelforge'
+                keyPassword System.getenv('NOVELFORGE_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig releaseKeystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // node 和依赖库要真正解压到 nativeLibraryDir 才能执行
+    packaging {
+        jniLibs { useLegacyPackaging true }
+    }
+}
