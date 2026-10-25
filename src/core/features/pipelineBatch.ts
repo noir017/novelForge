@@ -60,7 +60,6 @@ import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, describeThreadNotes, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
 import {
-  CallEstimate,
   GLOBAL_SUMMARY_EVERY,
   PLOT_BATCH,
   PlotBatchPlan,
@@ -583,8 +582,7 @@ export async function writeManuscripts(
   // 开写之前补建角色卡：已经在定稿里出场两章以上、还没有卡的人。没有卡就没有「当前状态」可维护，
   // 定稿时不更新、预检也只能靠定稿事实认人（百章实验里 13 张卡有 8 张是写完才建的）。
   const castCards = await planCastCards(project, { minAppearances: CAST_CARD_MIN_APPEARANCES });
-  const cardCalls: CallEstimate = { low: castCards.calls, high: castCards.calls, max: castCards.calls };
-  const totalCalls = castCards.calls > 0 ? addCalls(plan.calls, cardCalls) : plan.calls;
+  const totalCalls = castCards.batches > 0 ? addCalls(plan.calls, castCards.calls) : plan.calls;
   // 写前提醒（完善设定三期，零调用、不拦）：要写的这几章细纲点名、却还只有一句话的设定。前端弹窗算的是同一份（「待完善」）。
   const thin = await thinLoreFor(project, plan.chapters);
   const threadNotes = await threadReminders(project, plan.chapters);
@@ -594,13 +592,13 @@ export async function writeManuscripts(
   }
   // 前端弹窗算不出补卡那几次（要读定稿过的细纲），所以有卡要补时照样再问一次（第 4 条），缺省是弹窗上的选择。
   let choice = opts.call;
-  if (!choice || castCards.calls > 0) {
+  if (!choice || castCards.batches > 0) {
     const answer = await askCall({
       message: `${writing}：要写 ${plan.chapters.length} 章正文（${MODE_LABEL[mode]}${reviewing ? '、写完即审稿' : ''}），${describeCalls(totalCalls)}。现在写？`,
       actions: ['开始写章'],
       detail: [
         castCards.plans.length > 0
-          ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（同步过的章里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${castCards.calls} 次调用，算在上面的数里）。`
+          ? `开写之前先给${castCards.plans.map((p) => p.member.name).join('、')}建角色卡（同步过的章里已经出场 ${CAST_CARD_MIN_APPEARANCES} 章以上、还没有卡；${describeCalls(castCards.calls).replace(/（.*）$/, '')}，算在上面的数里）。`
           : '',
         '一章一章串行写：后一章接着前一章的结尾写。没写够时自动续写（算在上限里）。',
         plan.plotBatches.length > 0
@@ -628,6 +626,7 @@ export async function writeManuscripts(
         ...(plan.plotBatches.length > 0 ? ['plotOutline' as const] : []),
         'transcribe',
         ...(mode === 'finalize' || castCards.plans.length > 0 ? ['characterCard' as const] : []),
+        ...(castCards.plans.length > 0 ? ['transcribe' as const] : []),
       ],
       contextDetail: true,
       preset: opts.call,
@@ -708,10 +707,10 @@ async function runWriteBatch(
             config,
             report: (p) => report({ message: `补建角色卡 · ${p.message}` }),
           });
-          calls += castCards.calls;
+          calls += made.calls;
           log.info(`开写之前补建了 ${made.created} 张角色卡`, `${names}${made.failed > 0 ? `｜失败 ${made.failed} 张（空卡已留下）` : ''}`);
         } catch (err) {
-          calls += castCards.calls;
+          calls += castCards.calls.high;
           if (err instanceof CancelledError || signal.aborted) {
             log.warn('批量写章被取消，停在补建角色卡');
             return;

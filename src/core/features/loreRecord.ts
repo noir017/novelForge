@@ -3,8 +3,8 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { getHost } from '../host';
 import { collectText } from '../llm/collect';
-import { LlmProvider, StreamOptions } from '../llm/provider';
-import { createModelPool } from '../llm/pool';
+import { StreamOptions } from '../llm/provider';
+import { ModelPool, createModelPool } from '../llm/pool';
 import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { withCallChoice } from '../runtime/callScope';
@@ -22,8 +22,11 @@ import {
 } from '../model/loreFile';
 import { Workspace } from '../workspace';
 import { buildLoreIndex } from '../views/lore';
-import { LORE_RECORD_SYSTEM } from './lorePrompt';
+import { LORE_RECORD_SYSTEM, loreRecordJsonContract } from './lorePrompt';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
+import { describeCalls, transcribedCalls } from '../model/pipeline';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall, TranscribeSpec, transcribeJson } from './transcribe';
 
 const log = scoped('设定');
 
@@ -32,11 +35,14 @@ const log = scoped('设定');
  *
  * 默认路径是**定稿时顺手记**（features/summarize.ts，并进定稿第一步，不加调用次数）。这里是作者定的
  * 「另外允许单独调用」：觉得哪一章记得不好、或者老工程里那些在这个功能之前就定稿过的章（细纲没有
- * 「设定」一节），可以单独记——每章 1 次，只读正文、只出「设定」一个字段，只换掉「设定」一节，另外七节与指纹
+ * 「设定」一节），可以单独记——每章写 1 次、转写 1 次，只读正文、只出「设定」一个字段，只换掉「设定」一节，另外七节与指纹
  * 一个字不动。
  *
  * 只对**定稿过、而且正文没再改过**的章开放：没定稿的章，「设定」一节写的是计划，记了也会被定稿冲掉；
  * 定稿之后正文又改过的，先重新定稿（第 4 条：不偷偷补）。
+ *
+ * 2026-10-25 起单独记的这一条改成转写：模型按「## 设定」一条一行写，转写那一档照抄成 JSON（`TRANSCRIBED_CALLS`）。
+ * 定稿时顺手记的那一份跟着定稿那一步走，不在这里。
  *
  * 补记是**串行**的：「已有设定」提示里除了条目，还有前面各章「设定」一节记过、还没建条目的名字——
  * 后一章要看到前一章刚记下的名字，同一个东西才不会在两章里叫出两个名字。
@@ -70,7 +76,7 @@ export async function loreHint(project: NovelProject, text: string, plan?: Plot)
   const lines = [
     categories.length > 0
       ? `本书的设定分类：${categories.join('、')}。`
-      : '本书还没有设定分类：category 给一个简短的分类名（如「地点」「宗门」「法宝」），拿不准就给 ""。',
+      : '本书还没有设定分类：分类写一个简短的名字（如「地点」「宗门」「法宝」），拿不准就不写分类。',
   ];
   if (list.length > 0) {
     lines.push(`已有设定（本章正文里提到的；同一个东西请照抄这里的名字）：${list.join('、')}。`);
@@ -118,22 +124,24 @@ function freshFinalized(chapter: Chapter, plot: Plot | undefined): plot is Plot 
 }
 
 /**
- * 单独记一章的设定：1 次调用，只换掉这一章细纲的「设定」一节。返回写进去的行。
- * 解析不出来就抛（「设定」一节不动）；调用方记失败。
+ * 单独记一章的设定：写 1 次、转写 1 次（转写不合格重转 1 次），只换掉这一章细纲的「设定」一节。返回写进去的行。
+ * 写那一次走 `pool`（失败换同档其余），转写走 `transcribe`。解析不出来（没照格式写、转写没成）就抛（「设定」一节不动）；
+ * 调用方记失败。
  */
 export async function recordChapterLore(
   project: NovelProject,
   chapter: Chapter,
-  llm: LlmProvider,
-  signal?: AbortSignal,
-  budget?: { contextWindow: number; maxOutputTokens: number }
+  pool: ModelPool,
+  transcribe: TranscribeCall,
+  signal?: AbortSignal
 ): Promise<LoreLine[]> {
   const plot = await project.plotOfChapter(chapter);
   if (!freshFinalized(chapter, plot)) {
     throw new Error(`第 ${chapter.order} 章还没同步，或同步之后正文又改过`);
   }
   const config = readConfig();
-  const window = budget ?? { contextWindow: config.contextWindow, maxOutputTokens: config.maxOutputTokens };
+  const window = pool.primaryBudget;
+  const label = `第 ${chapter.order} 章记设定`;
   const text = await project.readChapterText(chapter);
   const hint = await loreHint(project, text, plot);
   const inputBudget = Math.max(2000, window.contextWindow - window.maxOutputTokens - estimateTokens(hint) - 1500);
@@ -148,22 +156,28 @@ export async function recordChapterLore(
     signal,
   };
   const startedAt = Date.now();
-  const raw = await collectText(
-    llm.stream(
-      [
-        { role: 'system', content: LORE_RECORD_SYSTEM },
-        {
-          role: 'user',
-          content: `${hint}请记下这一章正文里出现的设定。\n\n【第${chapter.order}章 ${chapter.title}】\n\n${body}`,
-        },
-      ],
-      options
+  const raw = await pool.run(label, (llm) =>
+    collectText(
+      llm.stream(
+        [
+          { role: 'system', content: LORE_RECORD_SYSTEM },
+          {
+            role: 'user',
+            content: `${hint}请记下这一章正文里出现的设定。\n\n【第${chapter.order}章 ${chapter.title}】\n\n${body}`,
+          },
+        ],
+        options
+      )
     )
   );
-  const parsed = parseLoreRecord(raw);
-  if (!parsed) {
-    throw new Error(`模型返回无法解析（${raw.length} 字）`);
+  const r = await transcribeJson(raw, RECORD_SPEC, transcribe);
+  if (r.notes.length > 0) {
+    log.info(`${label}：转写 ${r.calls} 次`, r.notes.join('\n'));
   }
+  if (!r.ok) {
+    throw new Error(r.failed ? r.message : `模型返回无法解析（${r.message}；${raw.length} 字）`);
+  }
+  const parsed = r.value;
   const people = plot.cast.flatMap((c) => [c.name, ...c.aliases]);
   const lines = await checkLore(project, chapter, parsed, text, people);
   await new Workspace(project).patchPlotLore(plot.relPath, lines);
@@ -175,6 +189,20 @@ export async function recordChapterLore(
   );
   return lines;
 }
+
+/**
+ * 记设定转写那一步（2026-10-25 起改成转写）：合同是 lorePrompt.ts 的 `loreRecordJsonContract`，解码就是下面的
+ * {@link parseLoreRecord}。原文连「设定」小标题、一条「- 」都没有的不转。名字、分类、说明都照抄原文，没有按对应关系填的。
+ */
+const RECORD_SPEC: TranscribeSpec<LoreLine[]> = {
+  label: '记设定',
+  contract: loreRecordJsonContract(),
+  decode: (json) => {
+    const lines = parseLoreRecord(json);
+    return lines ? { ok: true, value: lines } : { ok: false, message: '要一个 {"设定":[…]} 对象' };
+  },
+  looksLike: (source) => /设定|^\s*-\s/m.test(source),
+};
 
 /** `{"设定": [...]}` → 一行一条。不是 JSON、或没有这个字段，返回 undefined。 */
 export function parseLoreRecord(raw: string): LoreLine[] | undefined {
@@ -250,7 +278,7 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
   const n = targets.length;
   const what = relPath ? `第 ${targets[0].order} 章` : `${n} 章`;
   const answer = await askCall({
-    message: `记设定：读${what}正文，每章调用模型 1 次，共 ${n} 次。只换掉${relPath ? '这一章' : '这几章'}细纲的「设定」一节，别的不动。`,
+    message: `记设定：读${what}正文，${describeCalls(transcribedCalls(n, '每章'))}。只换掉${relPath ? '这一章' : '这几章'}细纲的「设定」一节，别的不动。`,
     actions: ['开始记'],
     detail: [
       relPath
@@ -260,7 +288,7 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
     ]
       .filter(Boolean)
       .join('\n\n'),
-    tasks: ['loreScan'],
+    tasks: ['loreScan', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '开始记') {
@@ -282,15 +310,14 @@ export async function recordLore(project: NovelProject, relPath?: string): Promi
         let done = 0;
         let failed = 0;
         let lines = 0;
+        const transcribe = poolTranscriber(signal, pool);
         for (const chapter of targets) {
           if (signal.aborted) {
             break;
           }
           report({ message: `记第 ${chapter.order} 章《${chapter.title}》的设定`, current: done, total: n });
           try {
-            const recorded = await pool.run(`第 ${chapter.order} 章记设定`, (llm) =>
-              recordChapterLore(project, chapter, llm, signal, pool.primaryBudget)
-            );
+            const recorded = await recordChapterLore(project, chapter, pool, transcribe, signal);
             lines += recorded.length;
           } catch (err) {
             if (signal.aborted) {

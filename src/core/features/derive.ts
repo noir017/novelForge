@@ -513,7 +513,7 @@ async function planLore(project: NovelProject): Promise<DerivePlan['lore']> {
 export function estimateOf(plan: Pick<DerivePlan, 'settings' | 'cards' | 'lore' | 'globalSummary' | 'threads'>): CallEstimate {
   const parts: CallEstimate[] = [];
   for (const doc of plan.settings) {
-    parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? EXACT_CALLS(plan.cards?.calls ?? 0) : ONE_CALL);
+    parts.push(doc === 'config' ? CONFIG_CALLS : doc === 'characters' ? (plan.cards?.calls ?? EXACT_CALLS(0)) : ONE_CALL);
   }
   if (plan.lore) {
     parts.push(loreEntryCalls(plan.lore.targets.length));
@@ -533,6 +533,7 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
     ...(plan.settings.some((d) => d !== 'characters') ? ['setting' as const] : []),
     ...(plan.cards ? ['characterCard' as const] : []),
     ...(plan.lore ? ['loreSynthesis' as const] : []),
+    ...(plan.cards || plan.lore ? ['transcribe' as const] : []),
     ...(plan.threads?.planFirst ? ['plotOutline' as const] : []),
     ...(plan.globalSummary || plan.threads ? ['plotSummary' as const] : []),
   ];
@@ -550,7 +551,7 @@ function describePlan(plan: DerivePlan, through: number): string {
   if (plan.cards) {
     const names = plan.cards.plans.map((p) => p.member.name);
     lines.push(
-      `角色卡：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 人` : ''}建卡（细纲里出场 ${plan.cards.min} 章以上、还没有卡；读他们出场的那几章正文，${plan.cards.calls} 次调用）。` +
+      `角色卡：给${names.slice(0, 12).join('、')}${names.length > 12 ? `等 ${names.length} 人` : ''}建卡（细纲里出场 ${plan.cards.min} 章以上、还没有卡；读他们出场的那几章正文，分 ${plan.cards.batches} 批，${describeCalls(plan.cards.calls)}）。` +
         (plan.cards.skipped.length > 0 ? `跳过 ${plan.cards.skipped.map((s) => `「${s.name}」（${s.reason}）`).join('、')}。` : '')
     );
   }
@@ -596,20 +597,21 @@ async function deriveCards(
     });
     project.invalidate();
     if (opts.signal.aborted) {
-      return { outcome: 'cancelled', calls: plan.calls };
+      return { outcome: 'cancelled', calls: r.calls };
     }
     if (r.created === 0) {
-      return { outcome: 'failed', calls: plan.calls, why: `角色卡一张都没建成（${r.failed} 张失败，空卡已留下）` };
+      return { outcome: 'failed', calls: r.calls, why: `角色卡一张都没建成（${r.failed} 张失败，空卡已留下）` };
     }
     if (r.failed > 0) {
       log.warn(`角色卡建了 ${r.created} 张，${r.failed} 张失败（空卡已留下，挂在那张卡上）`);
     }
-    return { outcome: 'ok', calls: plan.calls, created: r.created };
+    return { outcome: 'ok', calls: r.calls, created: r.created };
   } catch (err) {
+    // 抛出来（取消、建卡本身出错）就不知道调了几次：按报过的预计次数记。
     if (err instanceof CancelledError || opts.signal.aborted) {
-      return { outcome: 'cancelled', calls: plan.calls };
+      return { outcome: 'cancelled', calls: plan.calls.high };
     }
-    return { outcome: 'failed', calls: plan.calls, why: `角色卡没建成（${describeError(err)}）` };
+    return { outcome: 'failed', calls: plan.calls.high, why: `角色卡没建成（${describeError(err)}）` };
   }
 }
 

@@ -22,9 +22,12 @@ import { keepGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { stampState } from '../model/characterState';
-import { parseCardResponse, ParsedCard } from './characterCardParse';
+import { cardTranscribeSpec, ParsedCard } from './characterCardParse';
 import { UPDATE_SYSTEM } from './characterCardPrompt';
 import { unique, uniqueNumbers } from './parse';
+import { CallEstimate, describeCalls, transcribedCalls } from '../model/pipeline';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall, transcribeJson } from './transcribe';
 
 export { parseCardResponse } from './characterCardParse';
 
@@ -219,7 +222,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
   const answer = await askCall({
     message:
       `${label} ${plans.length} 张角色卡：共需通读 ${totalPlots} 章，` +
-      `分 ${totalBatches} 批，预计调用模型 ${totalBatches} 次。现在开始？`,
+      `分 ${totalBatches} 批，${describeCalls(transcribedCalls(totalBatches, '每批'))}。现在开始？`,
     actions: ['逐张确认后开始', '全部直接采纳并开始'],
     detail: [
       lanes > 1
@@ -231,7 +234,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
     ]
       .filter(Boolean)
       .join('\n\n'),
-    tasks: ['characterCard'],
+    tasks: ['characterCard', 'transcribe'],
     contextDetail: false,
   });
   if (!answer) {
@@ -266,6 +269,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
         let failed = 0;
         let discarded = 0;
         const running = new Set<string>();
+        const transcribe = poolTranscriber(signal, pool);
 
         // 并发下按卡内步数细分只会互相打架，所以完成粒度取到「卡」：
         // 一张卡结束时把它的全部步数一次性计入，进行中的另行报。
@@ -295,6 +299,7 @@ export async function updateAllCharacterCards(project: NovelProject, scope: Upda
                     total: totalSteps,
                   }),
                 pool,
+                transcribe,
                 config,
               }
             );
@@ -383,7 +388,7 @@ export async function createCardForCast(project: NovelProject, name: string): Pr
   });
 }
 
-/** 给没建卡的一位人物建卡要做的事：通读哪几章、分几批（一批一次调用）。 */
+/** 给没建卡的一位人物建卡要做的事：通读哪几章、分几批（一批写一次、转写一次）。 */
 export interface CastCardPlan {
   member: CastMember;
   plots: Chapter[];
@@ -395,8 +400,10 @@ export interface CastCardsPlan {
   plans: CastCardPlan[];
   /** 读不到正文、建不了的人和原因。 */
   skipped: { name: string; reason: string }[];
-  /** 一批一次调用，加起来就是预计调用次数。 */
-  calls: number;
+  /** 一共几批。 */
+  batches: number;
+  /** 预计调用次数：每批写 1 次、转写 1 次（2026-10-25 起改成转写，`transcribedCalls`）。 */
+  calls: CallEstimate;
   /** 一共通读几章（同一章给几个人读算几次）。 */
   chapters: number;
 }
@@ -426,10 +433,12 @@ export async function planCastCards(project: NovelProject, opts: { minAppearance
     }
     plans.push({ member, plots, batches });
   }
+  const batches = plans.reduce((sum, p) => sum + p.batches.length, 0);
   return {
     plans,
     skipped,
-    calls: plans.reduce((sum, p) => sum + p.batches.length, 0),
+    batches,
+    calls: transcribedCalls(batches, '每批'),
     chapters: plans.reduce((sum, p) => sum + p.batches.reduce((n, b) => n + b.plots.length, 0), 0),
   };
 }
@@ -437,7 +446,7 @@ export async function planCastCards(project: NovelProject, opts: { minAppearance
 /**
  * 按 {@link planCastCards} 排好的建卡：各人之间没有先后依赖，按 `lanes` 并发。每位先落一张空卡再让模型来填——
  * 即便调用失败或被取消，作者也拿到了一个可手写的档案；失败挂在那张卡上。不弹框、不开任务，调用方负责
- * 确认与进度条（工程页的「全部建卡」、批量写章开跑前的补卡）。
+ * 确认与进度条（工程页的「全部建卡」、批量写章开跑前的补卡）。`calls` 是实际调了几次（写的与转写的都算）。
  */
 export async function createCastCards(
   project: NovelProject,
@@ -450,13 +459,15 @@ export async function createCastCards(
     /** 进度：一句话，与已完成 / 一共多少步（一位 = 批数 + 1）。 */
     report?: (p: { message: string; current: number; total: number }) => void;
   }
-): Promise<{ created: number; failed: number }> {
+): Promise<{ created: number; failed: number; calls: number }> {
   const totalSteps = plans.reduce((sum, p) => sum + p.batches.length + 1, 0);
   let done = 0;
   let finished = 0;
   let created = 0;
   let failed = 0;
+  let calls = 0;
   const running = new Set<string>();
+  const transcribe = poolTranscriber(opts.signal, opts.pool);
   /**
    * 每位人物那张刚落下的空卡的路径，按 plan 下标记。
    *
@@ -491,6 +502,10 @@ export async function createCastCards(
           report: (message) =>
             opts.report?.({ message: `${describeState()} · 「${plan.member.name}」${message}`, current: done, total: totalSteps }),
           pool: opts.pool,
+          transcribe,
+          count: (n) => {
+            calls += n;
+          },
           config: opts.config,
         }
       );
@@ -531,7 +546,7 @@ export async function createCastCards(
       },
     }
   );
-  return { created, failed };
+  return { created, failed, calls };
 }
 
 /**
@@ -551,7 +566,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
     return;
   }
 
-  const { plans, skipped, calls, chapters } = await planCastCards(project);
+  const { plans, skipped, batches, calls, chapters } = await planCastCards(project);
   if (plans.length === 0) {
     log.info('没有可建卡的出场人物', skipped.map((s) => `${s.name}（${s.reason}）`).join('、'));
     getHost().toast('这些人物的出场章节都读不到内容，无法建卡。');
@@ -562,7 +577,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
   const answer = await askCall({
     message:
       `给 ${plans.length} 位未建卡的人物建卡：共需通读 ${chapters} 章，` +
-      `分 ${calls} 批，预计调用模型 ${calls} 次。现在开始？`,
+      `分 ${batches} 批，${describeCalls(calls)}。现在开始？`,
     actions: ['开始建卡'],
     detail: [
       `人物：${plans.map((p) => p.member.name).join('、')}`,
@@ -574,7 +589,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
     ]
       .filter(Boolean)
       .join('\n\n'),
-    tasks: ['characterCard'],
+    tasks: ['characterCard', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '开始建卡') {
@@ -591,7 +606,7 @@ export async function createCardsForAllCast(project: NovelProject): Promise<void
     }
     log.info(
       `开始批量建卡`,
-      `${plans.length} 位｜${chapters} 章分 ${calls} 批｜模型 ${pool.label}｜` +
+      `${plans.length} 位｜${chapters} 章分 ${batches} 批｜模型 ${pool.label}｜` +
         (lanes > 1 ? `并发 ${lanes} 路` : '串行')
     );
 
@@ -671,7 +686,7 @@ async function runUpdate(
   const answer = await askCall({
     message:
       `${scopeLabel}「${card.name}」的角色卡：需要通读 ${willRead} 章，` +
-      `分 ${batches.length} 批，预计调用模型 ${batches.length} 次。现在开始？`,
+      `分 ${batches.length} 批，${describeCalls(transcribedCalls(batches.length, '每批'))}。现在开始？`,
     actions: ['开始'],
     detail:
       [
@@ -682,7 +697,7 @@ async function runUpdate(
       ]
         .filter(Boolean)
         .join('\n\n') || undefined,
-    tasks: ['characterCard'],
+    tasks: ['characterCard', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '开始') {
@@ -718,6 +733,7 @@ async function runUpdate(
             signal,
             report: (message, current, total) => report({ message, current, total }),
             pool,
+            transcribe: poolTranscriber(signal, pool),
             config,
           }
         );
@@ -751,6 +767,10 @@ async function runCardUpdate(
     signal: AbortSignal;
     report: (message: string, current?: number, total?: number) => void;
     pool: ModelPool;
+    /** 转写那一档（features/poolIO.ts 的 `poolTranscriber`）。 */
+    transcribe: TranscribeCall;
+    /** 每调一次模型记一下（写的与转写的都算）：建卡要报实际调了几次。 */
+    count?: (n: number) => void;
     config: { contextWindow: number; maxOutputTokens: number; requestTimeoutMs: number };
   }
 ): Promise<CardUpdateOutcome> {
@@ -773,6 +793,8 @@ async function runCardUpdate(
    */
   const analyzed: number[] = [];
   const failed: number[] = [];
+  /** 最后一批没成的原因：全部失败时写进卡上的标记。 */
+  let lastWhy = '';
   const others = new Set(batches.flatMap((b) => b.others.map(normalizeName)));
 
   for (let i = 0; i < batches.length; i++) {
@@ -785,21 +807,25 @@ async function runCardUpdate(
     ctx.report(`分析 ${range}`, i, steps);
 
     const each = Date.now();
-    const parsed = await analyzeBatch(ctx.pool, card, sections, batch, {
+    const result = await analyzeBatch(ctx.pool, card, sections, batch, {
       index: i,
       total: batches.length,
       config: ctx.config,
       signal: ctx.signal,
+      transcribe: ctx.transcribe,
+      count: ctx.count,
     });
-    if (!parsed) {
+    if (!result.ok) {
       // 单批解析失败不放弃整次更新：已归纳出的内容仍然值得写回。
       failed.push(...batch.plots.map((p) => p.order));
+      lastWhy = result.why;
       log.warn(
         `第 ${i + 1}/${batches.length} 批解析失败，跳过`,
-        `范围 ${range}｜这几章不计入「已读到」，下次更新会重试`
+        `范围 ${range}｜${result.why}｜这几章不计入「已读到」，下次更新会重试`
       );
       continue;
     }
+    const parsed = result.card;
     sections = parsed.sections;
     aliases = unique([...aliases, ...parsed.aliases]);
     tags = unique([...tags, ...parsed.tags]);
@@ -821,7 +847,7 @@ async function runCardUpdate(
   if (analyzed.length === 0) {
     const detail =
       `范围 ${describePlots(batches.flatMap((b) => b.plots.map((p) => p.order)))}｜` +
-      '模型没有按要求返回 JSON。可在日志页看到每批的失败记录；换个模型或稍后重试。';
+      `模型没有按格式写，或者转写没成（${lastWhy}）。可在日志页看到每批的失败记录；换个模型或稍后重试。`;
     log.error(`「${card.name}」的 ${batches.length} 批全部解析失败，角色卡未改动`, detail);
     getHost().toast(`模型返回无法解析，「${card.name}」未改动。`, 'error');
     // 日志与 toast 都是「要求用户恰好在看」的出口。这一条必须留在卡上：
@@ -1018,6 +1044,9 @@ async function planBatches(
  * 关键点：把**当前已归纳出的卡**一并发过去，要求模型「在此基础上修订」而不是
  * 从零重写。这既让多批之间接得上，也是控制篇幅的抓手——提示词里反复强调
  * 保持精炼、不要堆砌。
+ *
+ * 2026-10-25 起改成转写：模型按十个小标题写档案，转写那一档照抄成 JSON（原文本身就是 JSON 的不转）。
+ * 转写没成（重转一次仍不合格、转写调用失败）同从前解析失败：这一批跳过，`why` 说清是哪一样。
  */
 async function analyzeBatch(
   pool: ModelPool,
@@ -1029,8 +1058,10 @@ async function analyzeBatch(
     total: number;
     config: { requestTimeoutMs: number };
     signal: AbortSignal;
+    transcribe: TranscribeCall;
+    count?: (n: number) => void;
   }
-): Promise<ParsedCard | undefined> {
+): Promise<{ ok: true; card: ParsedCard } | { ok: false; why: string }> {
   const options: StreamOptions = {
     // 输出上限跟着实际干活的模型走（pool 就在手边），不是对话页那个。
     maxOutputTokens: pool.primaryBudget.maxOutputTokens,
@@ -1046,8 +1077,10 @@ async function analyzeBatch(
   const range = describePlots(batch.plots.map((p) => p.order));
   const progress =
     ctx.total > 1 ? `这是第 ${ctx.index + 1}/${ctx.total} 批（${range}）。\n` : `本次分析 ${range}。\n`;
+  const label = `角色卡「${card.name}」${range}`;
 
-  const raw = await pool.run(`角色卡「${card.name}」${range}`, (llm) =>
+  ctx.count?.(1);
+  const raw = await pool.run(label, (llm) =>
     collectText(
       llm.stream(
         [
@@ -1059,13 +1092,13 @@ async function analyzeBatch(
               `${card.aliases.length > 0 ? `（又称 ${card.aliases.join('、')}）` : ''}\n` +
               (batch.others.length > 0
                 ? `这几章里出场的其他人物：${batch.others.join('、')}。他们都不是${card.name}，` +
-                  `不要把他们的身份、经历、对白写进这张卡，也不要把他们的名字填进 aliases。` +
+                  `不要把他们的身份、经历、对白写进这张卡，也不要把他们的名字写进别名。` +
                   `正文多半以别人的视角展开，只归纳写到${card.name}本人的部分。\n`
                 : '') +
               '\n' +
               `【当前的角色档案】\n${currentCard}\n\n` +
               `【正文】\n${batch.corpus}\n\n` +
-              '请在当前档案的基础上修订，输出完整的 JSON。',
+              '请在当前档案的基础上修订，按格式写出完整的档案。',
           },
         ],
         options
@@ -1073,7 +1106,15 @@ async function analyzeBatch(
     )
   );
 
-  return parseCardResponse(raw);
+  const r = await transcribeJson(raw, cardTranscribeSpec(label), ctx.transcribe);
+  ctx.count?.(r.calls);
+  if (r.notes.length > 0) {
+    log.info(`${label}：转写 ${r.calls} 次`, r.notes.join('\n'));
+  }
+  if (!r.ok) {
+    return { ok: false, why: r.failed ? r.message : `${r.message}（返回 ${raw.length} 字）` };
+  }
+  return { ok: true, card: r.value };
 }
 
 /**

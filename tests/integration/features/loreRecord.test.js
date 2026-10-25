@@ -152,9 +152,10 @@ describe('单独记一章', () => {
     await bundle.loreRecord.recordLore(project, CH(2));
   });
 
-  test('先报次数：1 次，只换「设定」一节', () => {
+  // 2026-10-25 起改成转写：写 1 次、转写 1 次；假模型直接给 JSON，不转写，实际 1 次。
+  test('先报次数：写 1 次、转写 1 次，只换「设定」一节', () => {
     const c = h.confirms[0];
-    assert.match(c.message, /读第 2 章正文，每章调用模型 1 次，共 1 次。只换掉这一章细纲的「设定」一节/);
+    assert.match(c.message, /读第 2 章正文，预计 2 次调用，最多 3 次（写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次）。只换掉这一章细纲的「设定」一节/);
     assert.equal(fake.callCount(), 1);
   });
 
@@ -193,7 +194,7 @@ describe('补记', () => {
     h.expect('开始记');
     await bundle.loreRecord.recordLore(project);
     const c = h.confirms[h.confirms.length - 1];
-    assert.match(c.message, /读1 章正文，每章调用模型 1 次，共 1 次/);
+    assert.match(c.message, /读1 章正文，预计 2 次调用，最多 3 次/);
     assert.match(c.detail, /另有 1 章同步之后正文又改过，这次不记/);
     assert.equal(fake.callCount(), 1);
     project.invalidate();

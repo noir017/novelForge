@@ -16,11 +16,14 @@ import { keepGender, normalizeGender } from '../model/gender';
 import { estimateTokens, takeHead } from '../context/tokenizer';
 import { Workspace } from '../workspace';
 import { stampState } from '../model/characterState';
-import { CHARACTER_SYSTEM } from './charactersPrompt';
+import { CHARACTER_JSON_CONTRACT, CHARACTER_SYSTEM } from './charactersPrompt';
 import { extractJsonArray, stringArray, stripCodeFence, unique } from './parse';
 import { pickPlotsByInput } from './pickPlots';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
+import { TRANSCRIBED_CALLS, describeCalls } from '../model/pipeline';
+import { poolTranscriber } from './poolIO';
+import { TranscribeSpec, transcribeJson } from './transcribe';
 
 const log = scoped('角色卡');
 
@@ -54,9 +57,9 @@ export async function extractCharacters(project: NovelProject): Promise<void> {
     return;
   }
   const answer = await askCall({
-    message: `提取角色卡：读第 ${picked.map((p) => p.no).join('、')} 章正文，新角色直接建卡，已有角色的更新逐个对比后再写。预计 1 次调用。`,
+    message: `提取角色卡：读第 ${picked.map((p) => p.no).join('、')} 章正文，新角色直接建卡，已有角色的更新逐个对比后再写。${describeCalls(TRANSCRIBED_CALLS)}。`,
     actions: ['开始提取'],
-    tasks: ['extractCharacters'],
+    tasks: ['extractCharacters', 'transcribe'],
     // 读哪几章上一步已经选定了，详细度管不着这一次。
     contextDetail: false,
   });
@@ -129,12 +132,18 @@ async function runExtract(project: NovelProject, picked: { no: number; title: st
         return;
       }
 
-      const parsed = parseCharacterResponse(raw);
-      if (parsed.length === 0) {
-        log.warn('没有解析出角色信息', `模型返回开头：${raw.slice(0, 300)}`);
+      // 2026-10-25 起改成转写：按人物、按小标题写的档案交给转写那一档照抄成 JSON（原文本身就是 JSON 的不转）。
+      // 转写没成同从前解析不出来：一张卡都不动，说一声。
+      const r = await transcribeJson(raw, CHARACTERS_SPEC, poolTranscriber(signal, pool));
+      if (r.notes.length > 0) {
+        log.info(`提取角色：转写 ${r.calls} 次`, r.notes.join('\n'));
+      }
+      if (!r.ok) {
+        log.warn(`没有解析出角色信息（${r.message}）`, `模型返回开头：${raw.slice(0, 300)}`);
         getHost().toast('没有从这些章节中解析出角色信息。');
         return;
       }
+      const parsed = r.value;
 
       report({ message: `解析出 ${parsed.length} 个角色，正在合并`, current: 2, total: 3 });
       log.info(`解析出 ${parsed.length} 个角色`, parsed.map((p) => p.name).join('、'));
@@ -375,7 +384,23 @@ export async function newLore(project: NovelProject, dir?: string, name?: string
 // ---------------------------------------------------------------- 解析
 
 /**
- * 解析模型返回。要求模型输出 JSON 数组；解析失败时返回空数组由调用方提示，
+ * 提取角色转写那一步（2026-10-25 起改成转写）：合同是 {@link CHARACTER_JSON_CONTRACT}，解码就是下面的
+ * {@link parseCharacterResponse}（剧作称谓换真名那些后处理都在里面）。一个人都整理不出来算不合格；性别按对应关系填，
+ * 不比原文；原文连「身份」「性格」这几节都没有的不转。
+ */
+const CHARACTERS_SPEC: TranscribeSpec<ParsedCharacter[]> = {
+  label: '提取角色',
+  contract: CHARACTER_JSON_CONTRACT,
+  decode: (json) => {
+    const list = parseCharacterResponse(json);
+    return list.length > 0 ? { ok: true, value: list } : { ok: false, message: '一个人物都整理不出来：要一个数组，每项带 name' };
+  },
+  mapped: ['性别', 'gender'],
+  looksLike: (source) => /身份|性格|语言习惯|当前状态/.test(source),
+};
+
+/**
+ * 解析模型返回（转写出来的、或模型直接给的 JSON 数组）；解析失败时返回空数组由调用方提示，
  * 不做「猜测式」兜底——角色卡写错比没写更麻烦。
  */
 export function parseCharacterResponse(raw: string): ParsedCharacter[] {

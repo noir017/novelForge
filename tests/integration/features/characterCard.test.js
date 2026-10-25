@@ -57,6 +57,13 @@ function expect(...values) {
   h.resetPeaks();
 }
 
+/**
+ * 确认框里报的次数（2026-10-25 起改成转写）：每批写 1 次、转写 1 次，转写不合格重转 1 次。假模型直接给 JSON，
+ * 不转写，实际调用次数就是批数。
+ */
+const batchCalls = (batches) =>
+  `分 ${batches} 批，预计 ${batches * 2} 次调用，最多 ${batches * 3} 次（${batches > 1 ? '每批' : ''}写 1 次、转写模型照抄成 JSON 1 次`;
+
 /** 对应原脚本的 `replies = [...]`；顺带把模型侧并发峰值归零。 */
 function setReplies(items) {
   fake.reset(items);
@@ -141,7 +148,7 @@ describe('分批与「预计调用次数」', () => {
     await cardMod.updateCharacterCard(project, CARD, 'full');
 
     callCount = fake.calls.length;
-    ask = h.confirms.find((c) => c.message.includes('预计调用模型'));
+    ask = h.confirms.find((c) => c.message.includes('次调用'));
     confirmMessages = h.confirms.map((c) => c.message);
     // 只读该角色出场的那 4 章，第 3 章（沈氏）不该进来。
     corpus = fake.calls.map((m) => m[1].content).join('\n');
@@ -161,8 +168,8 @@ describe('分批与「预计调用次数」', () => {
     assert.ok(!!ask, JSON.stringify(confirmMessages));
   });
 
-  test('确认框写明预计调用次数', () => {
-    assert.ok(ask && ask.message.includes(`预计调用模型 ${callCount} 次`), ask && ask.message);
+  test('确认框写明预计调用次数：每批写 1 次、转写 1 次', () => {
+    assert.ok(ask && ask.message.includes(batchCalls(callCount)), ask && ask.message);
   });
 
   test('确认框写明要读几章', () => {
@@ -582,7 +589,7 @@ describe('批量更新所有角色卡', () => {
     setReplies([cardJson({ 当前状态: '批量测试中' })]);
     await cardMod.updateAllCharacterCards(project, 'incremental');
 
-    ask = h.confirms.find((c) => c.message.includes('预计调用模型'));
+    ask = h.confirms.find((c) => c.message.includes('次调用'));
     confirmMessages = h.confirms.map((c) => c.message);
     callCount = fake.calls.length;
     corpus = fake.calls.map((m) => m[1].content).join('\n');
@@ -626,8 +633,8 @@ describe('批量更新所有角色卡', () => {
     );
   });
 
-  test('预计调用次数与实际一致', () => {
-    assert.ok(ask && ask.message.includes(`预计调用模型 ${callCount} 次`), ask && ask.message);
+  test('预计调用次数与实际批数一致', () => {
+    assert.ok(ask && ask.message.includes(batchCalls(callCount)), ask && ask.message);
   });
 
   test('跳过情况写进明细', () => {
@@ -703,7 +710,7 @@ describe('批量更新：并发与审阅排队', () => {
       firstConfirm = h.confirms[0];
       linCard = t.read(CARD);
       // 预计调用次数是承诺，不能因为并发就对不上账。
-      ask = h.confirms.find((c) => c.message.includes('预计调用模型'));
+      ask = h.confirms.find((c) => c.message.includes('次调用'));
       callCount = fake.calls.length;
     } finally {
       settings.concurrency = 1;
@@ -745,7 +752,7 @@ describe('批量更新：并发与审阅排队', () => {
   });
 
   test('并发不改变预计调用次数', () => {
-    assert.ok(ask && ask.message.includes(`预计调用模型 ${callCount} 次`), ask && ask.message);
+    assert.ok(ask && ask.message.includes(batchCalls(callCount)), ask && ask.message);
   });
 });
 
@@ -774,7 +781,7 @@ describe('给未建卡的人全部建卡', () => {
     expect(undefined);
     setReplies([cardJson()]);
     await cardMod.createCardsForAllCast(project);
-    ask = h.confirms.find((c) => c.message.includes('预计调用模型'));
+    ask = h.confirms.find((c) => c.message.includes('次调用'));
     confirmMessages = h.confirms.map((c) => c.message);
     // 未建卡的人不止这两位（沈氏一直没建卡），所以报数按实际人数对，
     // 而不是钉死一个数字——重要的是「说的人数 = 列出的人数」。

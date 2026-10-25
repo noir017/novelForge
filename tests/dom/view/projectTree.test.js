@@ -656,7 +656,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
 
   // 设定名录：定稿过、正文没再改过的章可以单独记一次设定（只换细纲「设定」一节），带的也是章节路径。
   test('定稿过的章：「记设定」发 recordLore，带章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('楔子')), '记设定（调用模型 1 次）');
+    ui.pick(ui.rightClick(plotRow('楔子')), '记设定（预计 2 次调用，最多 3 次）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'recordLore', JSON.stringify(msg));
     assert.equal(msg.relPath, 'chapters/001-楔子.md', JSON.stringify(msg));
@@ -699,7 +699,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
     assert.ok(legacyItems.includes('同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 3–6 次调用）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新同步'), JSON.stringify(legacyItems));
     // 没定稿的章「设定」一节是计划，记了也会被定稿冲掉：不给单独记设定。
-    assert.ok(!legacyItems.includes('记设定（调用模型 1 次）'), JSON.stringify(legacyItems));
+    assert.ok(!legacyItems.includes('记设定（预计 2 次调用，最多 3 次）'), JSON.stringify(legacyItems));
   });
 
   test('没有草稿时给「新建草稿」', () => {

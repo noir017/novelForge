@@ -11,7 +11,7 @@
  */
 import { el as mk } from '../../dom';
 import type { MenuItem } from '../../globals';
-import { FINALIZE_CALLS, LORE_ENTRY_CALLS, LORE_EXPAND_CALLS, OUTLINE_TARGET, PLOT_STAGE_LABEL, describeCalls, labelOf, outlineNextRange } from '../../protocol';
+import { FINALIZE_CALLS, LORE_ENTRY_CALLS, LORE_EXPAND_CALLS, OUTLINE_TARGET, PLOT_STAGE_LABEL, TRANSCRIBED_CALLS, describeCalls, labelOf, outlineNextRange } from '../../protocol';
 import type {
   ArchitectureRow,
   CastConflictView,
@@ -302,7 +302,10 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number, depth = 0): HTMLElemen
       // 单独记设定（设定名录，作者定案）：只对定稿过、正文没再改过的章——没定稿的「设定」一节是计划，
       // 记了也会被定稿冲掉。定稿时本来就会顺手记，这里是重记一次、或补老章节。
       if (!p.stale) {
-        items.push({ label: '记设定（调用模型 1 次）', run: () => projectAction('recordLore', p.chapterPath) });
+        items.push({
+          label: `记设定（${describeCalls(TRANSCRIBED_CALLS).replace(/（.*）$/, '')}）`,
+          run: () => projectAction('recordLore', p.chapterPath),
+        });
       }
     }
     if (p.chapterPath) {

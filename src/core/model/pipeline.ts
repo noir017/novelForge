@@ -1003,14 +1003,36 @@ export const REVISE_CALLS: CallEstimate = {
 };
 
 /**
- * 建一条设定条目、整合一条（`features/lore.ts`）：1 次；交回来的解析不了时这一条重来 1 次——从前整本
- * 重扫时解析不了的条目直接丢了，一次跑下来少了 7 条。
+ * 写 1 次、转写 1 次的那种（2026-10-25 起改成转写）：干活的模型按格式写自然语言，转写模型照抄成 JSON，转写不合格重转 1 次；
+ * 还不行照这一步原来解析失败的走法（跳过这一批、记失败），不重写。更新角色卡与建卡的一批、提取角色、记设定的一章、
+ * 按目录整理的一批都是这一份。
+ */
+export const TRANSCRIBED_CALLS: CallEstimate = {
+  low: 2,
+  high: 2,
+  max: 3,
+  why: '写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次',
+};
+
+/** n 份各 {@link TRANSCRIBED_CALLS}：`each` 是「每批」「每章」那个说法（n 是 1 时不说）。 */
+export function transcribedCalls(n: number, each: string): CallEstimate {
+  const { low, high, max, why } = TRANSCRIBED_CALLS;
+  return { low: n * low, high: n * high, max: n * max, why: `${n > 1 ? each : ''}${why}` };
+}
+
+/** 建条目、整合一条最多写几轮：交回来的整理不出来时这一条重写一次。 */
+export const LORE_ENTRY_ROUNDS = 2;
+
+/**
+ * 建一条设定条目、整合一条（`features/lore.ts`）：写 1 次、转写 1 次（2026-10-25 起改成转写），转写不合格重转 1 次；
+ * 还整理不出来（没照格式写、重转仍不合格）这一条重写 1 次、再转——从前整本重扫时解析不了的条目直接丢了，一次跑下来
+ * 少了 7 条。所以上限是 {@link LORE_ENTRY_ROUNDS} 轮 × 3 次。
  */
 export const LORE_ENTRY_CALLS: CallEstimate = {
-  low: 1,
-  high: 1,
-  max: 2,
-  why: '交回来的解析不了时这一条重来 1 次',
+  low: 2,
+  high: 2,
+  max: LORE_ENTRY_ROUNDS * 3,
+  why: '写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次，还整理不出来这一条重写 1 次、再转',
 };
 
 /** n 条设定各建（或整合）一次：{@link LORE_ENTRY_CALLS} 乘 n。 */

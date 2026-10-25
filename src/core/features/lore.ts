@@ -14,11 +14,12 @@ import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
 import {
   CreationTarget,
-  LORE_ENTRY_CALLS,
+  LORE_ENTRY_ROUNDS,
   LORE_EXPAND_BATCH_CALLS,
   describeCalls,
   loreEntryCalls,
   loreExpandCalls,
+  transcribedCalls,
 } from '../model/pipeline';
 import { NovelProject, renderLoreEntry } from '../model/project';
 import { Plot } from '../model/plotFile';
@@ -40,9 +41,10 @@ import { createPlannedLoreAt } from '../generation/accept';
 import { loreExpandKnown } from '../generation/generate';
 import { ChainError, ChainResult, completeLoreExpand } from '../generation/structured';
 import { parseLoreExpansion } from './loreExpand';
-import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM } from './lorePrompt';
+import { LORE_ENTRY_SYSTEM, LORE_ORGANIZE_SYSTEM, loreEntryJsonContract, loreOrganizeJsonContract } from './lorePrompt';
 import { extractJsonObject, stringArray, stripCodeFence, stripTrailingCommas, unique } from './parse';
-import { poolIO } from './poolIO';
+import { poolIO, poolTranscriber } from './poolIO';
+import { TranscribeCall, TranscribeSpec, transcribeJson } from './transcribe';
 import { checkpointBefore } from './checkpoint';
 
 const log = scoped('设定');
@@ -95,15 +97,18 @@ function renderRecords(records: readonly LoreFact[]): string {
 // ---------------------------------------------------------------- 调模型
 
 /**
- * 要一条 `{brief, keywords, body}`。交回来的解析不了就这一条重来一次（{@link LORE_ENTRY_CALLS}，确认框里
- * 报过上限），还不行才算失败。`onCall` 每调一次记一下：拆书补齐要报实际调了几次。
+ * 要一条 `{brief, keywords, body}`。2026-10-25 起改成转写：模型按「一句话 / 关键词 / ## 概要……」写，转写那一档照抄成 JSON
+ * （原文本身就是 JSON 的不转），转写不合格重转一次。还整理不出来（没照格式写、重转仍不合格）就这一条重写一次
+ * （{@link LORE_ENTRY_ROUNDS} 轮，`LORE_ENTRY_CALLS` 确认框里报过上限），还不行才算失败；转写调用本身失败直接算失败。
+ * `onCall` 每调一次记一下（写的与转写的都算）：拆书补齐要报实际调了几次。
  */
 async function draftEntry(
   pool: ModelPool,
+  transcribe: TranscribeCall,
   label: string,
   user: string,
   signal: AbortSignal,
-  onCall?: () => void
+  onCall?: (n: number) => void
 ): Promise<EntryDraft> {
   const budget = pool.primaryBudget;
   const options: StreamOptions = {
@@ -113,7 +118,7 @@ async function draftEntry(
     signal,
   };
   for (let attempt = 1; ; attempt++) {
-    onCall?.();
+    onCall?.(1);
     const raw = await pool.run(label, (llm) =>
       collectText(
         llm.stream(
@@ -125,15 +130,38 @@ async function draftEntry(
         )
       )
     );
-    const draft = parseEntryDraft(raw);
-    if (draft) {
-      return draft;
+    const r = await transcribeJson(raw, entrySpec(label), transcribe);
+    onCall?.(r.calls);
+    if (r.notes.length > 0) {
+      log.info(`${label}：转写 ${r.calls} 次`, r.notes.join('\n'));
     }
-    if (attempt >= LORE_ENTRY_CALLS.max || signal.aborted) {
-      throw new Error(`模型返回无法解析（${raw.length} 字${attempt > 1 ? `，重来了 ${attempt - 1} 次` : ''}）`);
+    if (r.ok) {
+      return r.value;
     }
-    log.warn(`${label}：模型返回无法解析（${raw.length} 字），这一条重来一次`);
+    if (r.failed) {
+      throw new Error(r.message);
+    }
+    if (attempt >= LORE_ENTRY_ROUNDS || signal.aborted) {
+      throw new Error(`模型返回无法解析（${r.message}；${raw.length} 字${attempt > 1 ? `，重写了 ${attempt - 1} 次` : ''}）`);
+    }
+    log.warn(`${label}：模型返回无法解析（${r.message}；${raw.length} 字），这一条重写一次`);
   }
+}
+
+/**
+ * 建条目与整合转写那一步：合同是 lorePrompt.ts 的 `loreEntryJsonContract`，解码就是 {@link parseEntryDraft}。
+ * 原文连「概要」「规则与边界」「现状」都没有的不转。
+ */
+function entrySpec(label: string): TranscribeSpec<EntryDraft> {
+  return {
+    label,
+    contract: loreEntryJsonContract(),
+    decode: (json) => {
+      const draft = parseEntryDraft(json);
+      return draft ? { ok: true, value: draft } : { ok: false, message: 'body 是空的，或者不是 {brief, keywords, body} 那样的一个对象' };
+    },
+    looksLike: (source) => /概要|规则与边界|现状/.test(source),
+  };
 }
 
 /** `{brief, keywords, body}`；正文为空或不是 JSON 返回 undefined。正文里带了一级标题就剥掉。 */
@@ -176,7 +204,7 @@ function jsonObject(raw: string): Record<string, unknown> | undefined {
 
 /**
  * 给名录里「出现过 · 未建条目」的名字建条目。给了 `names` 就建那几个；没给就建**出现过**的全部。
- * 每条 1 次（解析不了的重来一次），原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
+ * 每条写 1 次、转写 1 次（整理不出来的重写一次，`LORE_ENTRY_CALLS`），原料是定稿细纲里提到它的记录（不重读正文），新文件建在它的分类目录里（不存在就建）。
  */
 export async function buildLoreEntries(project: NovelProject, names?: readonly string[]): Promise<void> {
   const host = getHost();
@@ -202,7 +230,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
       `要建的：${targets.slice(0, 20).map((u) => u.name).join('、')}${n > 20 ? ` 等 ${n} 条` : ''}`,
       lanes > 1 ? `最多 ${lanes} 条同时建。` : '一条一条串行建（并发数为 1）。',
     ].join('\n\n'),
-    tasks: ['loreSynthesis'],
+    tasks: ['loreSynthesis', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '开始建') {
@@ -231,7 +259,7 @@ export async function buildLoreEntries(project: NovelProject, names?: readonly s
 }
 
 /**
- * 建条目本身：**不问、不弹框**，调用方已经把条数与次数报过了（第 4 条）。每条 1 次（解析不了的重来一次），
+ * 建条目本身：**不问、不弹框**，调用方已经把条数与次数报过了（第 4 条）。每条写 1 次、转写 1 次（整理不出来的重写一次），
  * 最多 `lanes` 条同时建；原料是定稿细纲里提到它的记录，水位记到 {@link integrationWatermark}。「建条目」与
  * 拆书「从已写正文补齐」（features/derive.ts）共用。一条失败不连累别的，失败的写日志、计进 `failed`；
  * `calls` 是实际调了几次。
@@ -259,10 +287,11 @@ export async function createLoreEntries(
   let created = 0;
   let failed = 0;
   let calls = 0;
-  const onCall = (): void => {
-    calls++;
+  const onCall = (n: number): void => {
+    calls += n;
   };
-  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, opts.signal, recorded, onCall), {
+  const transcribe = poolTranscriber(opts.signal, opts.pool);
+  await runPool([...targets], opts.lanes, (u) => buildOne(project, u, plots, through, opts.pool, transcribe, opts.signal, recorded, onCall), {
     signal: opts.signal,
     onSettled: (result, u, _i, done) => {
       if (result.status === 'fulfilled') {
@@ -284,14 +313,16 @@ async function buildOne(
   plots: readonly Plot[],
   through: number,
   pool: ModelPool,
+  transcribe: TranscribeCall,
   signal: AbortSignal,
   recorded: readonly string[],
-  onCall: () => void
+  onCall: (n: number) => void
 ): Promise<void> {
   const records = recordsAbout(plots, [u.name], u.notes);
   const category = normalizeLoreCategory(u.category);
   const draft = await draftEntry(
     pool,
+    transcribe,
     `设定「${u.name}」建条目`,
     `设定：${u.name}\n分类：${category || '未分类'}\n\n定稿细纲里关于它的记录（按章号）：\n${renderRecords(records)}`,
     signal,
@@ -335,7 +366,7 @@ interface IntegratePlan {
 
 /**
  * 把条目水位之后、定稿过的新事实并进条目。给了 `relPaths` 就整合那几条；没给就是名录上挂 `＋N` 的全部。
- * 每条 1 次（解析不了的重来一次）。水位推到 {@link integrationWatermark}，更晚的事实留到下次（它们照样作为
+ * 每条写 1 次、转写 1 次（整理不出来的重写一次）。水位推到 {@link integrationWatermark}，更晚的事实留到下次（它们照样作为
  * 尾巴带进上下文）。
  */
 export async function integrateLore(project: NovelProject, relPaths?: readonly string[]): Promise<void> {
@@ -371,7 +402,7 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
     ]
       .filter(Boolean)
       .join('\n\n'),
-    tasks: ['loreSynthesis'],
+    tasks: ['loreSynthesis', 'transcribe'],
     contextDetail: false,
   });
   if (!answer) {
@@ -394,7 +425,8 @@ export async function integrateLore(project: NovelProject, relPaths?: readonly s
         let skipped = 0;
         let failed = 0;
         const recorded = index.unknown.map((u) => u.name);
-        await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, signal, recorded), {
+        const transcribe = poolTranscriber(signal, pool);
+        await runPool(plans, lanes, (p) => integrateOne(project, p, through, autoApply, pool, transcribe, signal, recorded), {
           signal,
           onSettled: (result, p, _i, done) => {
             if (result.status === 'fulfilled') {
@@ -439,6 +471,7 @@ async function integrateOne(
   through: number,
   autoApply: boolean,
   pool: ModelPool,
+  transcribe: TranscribeCall,
   signal: AbortSignal,
   recorded: readonly string[]
 ): Promise<boolean> {
@@ -454,7 +487,7 @@ async function integrateOne(
   ]
     .filter((line, i, all) => line !== '' || all[i - 1] !== '')
     .join('\n');
-  const draft = await draftEntry(pool, `设定「${entry.title}」整合`, user, signal);
+  const draft = await draftEntry(pool, transcribe, `设定「${entry.title}」整合`, user, signal);
   if (signal.aborted) {
     return false;
   }
@@ -805,9 +838,9 @@ export async function organizeLore(project: NovelProject, scope?: OrganizeScope)
   }
   const batches = chunk(targets, ORGANIZE_BATCH);
   const answer = await askCall({
-    message: `整理 ${targets.length} 条设定：分 ${batches.length} 批，调用模型 ${batches.length} 次，出一份搬家清单。`,
+    message: `整理 ${targets.length} 条设定：分 ${batches.length} 批，${describeCalls(transcribedCalls(batches.length, '每批'))}，出一份搬家清单。`,
     actions: ['开始'],
-    tasks: ['loreSynthesis'],
+    tasks: ['loreSynthesis', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '开始') {
@@ -828,6 +861,7 @@ export async function organizeLore(project: NovelProject, scope?: OrganizeScope)
         const folders = new Set<string>();
         const moves: LoreMove[] = [];
         const notes: string[] = [];
+        const transcribe = poolTranscriber(signal, pool);
         for (const [i, batch] of batches.entries()) {
           if (signal.aborted) {
             return;
@@ -845,7 +879,17 @@ export async function organizeLore(project: NovelProject, scope?: OrganizeScope)
                 )
               )
             );
-            const plan = checkOrganizePlan(raw, batch, [...categories, ...folders]);
+            // 2026-10-25 起改成转写：按「## 新目录」「## 搬家」写的清单交给转写那一档照抄成 JSON（原文本身就是 JSON 的不转）。
+            // 转写没成同从前解析不了：这一批算失败，别的批照常。
+            const known = [...categories, ...folders];
+            const r = await transcribeJson(raw, organizeSpec(`整理设定第 ${i + 1} 批`, batch, known), transcribe);
+            if (r.notes.length > 0) {
+              log.info(`整理设定第 ${i + 1} 批：转写 ${r.calls} 次`, r.notes.join('\n'));
+            }
+            if (!r.ok) {
+              throw new Error(r.failed ? r.message : `模型返回无法解析（${r.message}；${raw.length} 字）`);
+            }
+            const plan = r.value;
             plan.folders.forEach((f) => folders.add(f));
             moves.push(...plan.moves);
             notes.push(...plan.dropped);
@@ -902,6 +946,29 @@ function organizePrompt(categories: readonly string[], batch: readonly LoreEntry
     '要整理的条目（路径｜标题｜一句话）：',
     ...batch.map((e) => `- ${e.slug}｜${e.title}｜${e.brief || e.body.trim().split(/\n/)[0]?.slice(0, LORE_ENTRY_LIMITS.brief) || ''}`),
   ].join('\n');
+}
+
+/**
+ * 按目录整理转写那一步：合同是 lorePrompt.ts 的 `loreOrganizeJsonContract`，解码就是 {@link checkOrganizePlan}。
+ * 路径都照抄原文，没有按对应关系填的（搬回根目录的 `to` 是空串，不比）；原文连「新目录」「搬家」、一个箭头都没有的不转。
+ */
+function organizeSpec(
+  label: string,
+  batch: readonly LoreEntry[],
+  categories: readonly string[]
+): TranscribeSpec<ReturnType<typeof checkOrganizePlan>> {
+  return {
+    label,
+    contract: loreOrganizeJsonContract(),
+    decode: (json) => {
+      try {
+        return { ok: true, value: checkOrganizePlan(json, batch, categories) };
+      } catch (err) {
+        return { ok: false, message: describeError(err) };
+      }
+    },
+    looksLike: (source) => /新目录|搬家|→/.test(source),
+  };
 }
 
 /**

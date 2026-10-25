@@ -129,11 +129,13 @@ describe('建条目', () => {
   });
 
   // 出现过、还没建条目的：停舟客栈（第 1、2 章）、青崖镇（第 2–5 章）、后山（第 1 章）、城隍庙（第 5 章），全建。
-  test('先报次数：出现过的全部建，每条 1 次，解析不了的重来一次', () => {
+  // 2026-10-25 起改成转写：每条写 1 次、转写 1 次，转写不合格重转 1 次，还整理不出来重写一次——一条最多 6 次。
+  // 假模型直接给 JSON，不转写，实际一条 1 次。
+  test('先报次数：出现过的全部建，每条写 1 次、转写 1 次，整理不出来的重写一次', () => {
     const c = h.confirms[h.confirms.length - 1];
     assert.match(
       c.message,
-      /^建 4 条设定：预计 4 次调用，最多 8 次（交回来的解析不了时这一条重来 1 次）。只读同步过的细纲里提到它们的那几行，不重读正文。/
+      /^建 4 条设定：预计 8 次调用，最多 24 次（写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次，还整理不出来这一条重写 1 次、再转）。只读同步过的细纲里提到它们的那几行，不重读正文。/
     );
     assert.match(c.detail, /要建的：/);
     assert.equal(fake.callCount(), 4);
@@ -290,7 +292,7 @@ describe('按目录整理', () => {
     h.expect('开始', '照这样整理');
     await bundle.lore.organizeLore(project, 'unfiled');
     const [go, plan] = h.confirms.slice(-2);
-    assert.match(go.message, /整理 1 条设定：分 1 批，调用模型 1 次/);
+    assert.match(go.message, /整理 1 条设定：分 1 批，预计 2 次调用，最多 3 次（写 1 次、转写模型照抄成 JSON 1 次/);
     assert.match(plan.message, /搬 1 条设定，新建 1 个目录。只搬文件，条目内容一个字不改。/);
     assert.match(plan.detail, /过所：未分类 → 制度/);
     assert.ok(!t.has('.novelforge/lore/过所.md'));
@@ -333,13 +335,14 @@ describe('模型返回解析不了', () => {
     await finalizeAll([[6, { lore: '- 黑水渡〔地域〕：镇外的渡口\n- 鬼市〔地域〕：夜里才开' }]]);
   });
 
-  test('这一条重来一次，第二次解得出来就照常建', async () => {
+  // 没照格式写的（连「概要」都没有）不花转写那一次，直接重写。
+  test('这一条重写一次，第二次解得出来就照常建', async () => {
     let n = 0;
     entryReply = () => (++n === 1 ? '这不是 JSON' : ENTRY('镇外的渡口', '## 概要\n\n镇外的渡口。'));
     fake.reset();
     h.expect('开始建');
     await bundle.lore.buildLoreEntries(project, ['黑水渡']);
-    assert.match(h.confirms[h.confirms.length - 1].message, /^建 1 条设定：预计 1 次调用，最多 2 次/);
+    assert.match(h.confirms[h.confirms.length - 1].message, /^建 1 条设定：预计 2 次调用，最多 6 次/);
     assert.equal(fake.callCount(), 2);
     project.invalidate();
     assert.ok((await project.listLore()).some((e) => e.title === '黑水渡'));
@@ -351,7 +354,7 @@ describe('模型返回解析不了', () => {
     h.toasts.length = 0;
     h.expect('开始建');
     await bundle.lore.buildLoreEntries(project, ['鬼市']);
-    assert.equal(fake.callCount(), 2, '最多 2 次，报过的上限');
+    assert.equal(fake.callCount(), 2, '写两轮，没照格式写的不转写');
     assert.match(h.toasts.map((x) => x.message ?? x).join('\n'), /新建 0 条设定，失败 1 条/);
     project.invalidate();
     assert.ok(!(await project.listLore()).some((e) => e.title === '鬼市'));
