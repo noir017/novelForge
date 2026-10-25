@@ -21,6 +21,7 @@ const S = loadModule('src/core/features/loreSettle.ts');
 const A = loadModule('src/core/features/artifact.ts');
 const P = loadModule('src/core/context/prompts.ts');
 const R = loadModule('src/core/context/recipes.ts');
+const LP = loadModule('src/core/context/loreSettlePrompt.ts');
 
 const entry = (title, keywords = [], over = {}) => ({
   slug: title,
@@ -247,11 +248,11 @@ describe('提示词', () => {
   const sys = (action, target) => P.buildSystemPrompt(action, config, { target });
   const LORE_DIR = { kind: 'setting', doc: 'lore' };
 
-  test('系统提示：落定设定的原则与任务，不说「这一章」，没定的进 questions 字段', () => {
+  test('系统提示：落定设定的原则与任务，不说「这一章」，没定的进「还没定的问题」', () => {
     const s = sys({ stage: 'setting', capability: 'settle' }, LORE_DIR);
     assert.ok(s.includes('这一次只把讨论里已经定下来的设定落成条目'), s.slice(0, 400));
     assert.ok(s.includes('已经定下来的设定**整理成一批设定条目'), s);
-    assert.ok(s.includes('写进 questions 字段'), s);
+    assert.ok(s.includes('写进最后「还没定的问题」一节'), s);
     // 真跑：「残米」只差来源没定，模型整条没写。
     assert.ok(s.includes('不要因为有一处没定就整条不写'), s);
     assert.ok(!s.includes('你和作者刚讨论完这一章'), s);
@@ -265,7 +266,8 @@ describe('提示词', () => {
 
   test('合同：落定设定那一份，带上限；不是设定清单', () => {
     const c = P.buildOutputContract({ stage: 'setting', capability: 'settle' }, { target: LORE_DIR });
-    assert.ok(c.includes('【不可变落定设定 JSON 合同】'), c);
+    // 2026-10-25 起按小标题写，JSON 合同挪给转写那一步。
+    assert.ok(c.includes('【落定格式】') && c.includes('## 还没定的问题') && !c.includes('{"entries"'), c);
     assert.ok(c.includes('最多 12 条'), c);
     assert.ok(c.includes('三节合计 ≤ 600 字') && c.includes('暗设 ≤ 200 字'), c);
     assert.ok(c.includes('**人不是设定**'), c);
@@ -276,7 +278,14 @@ describe('提示词', () => {
     // 真跑：讨论只提到的已有条目也被列进来；一个没想好的问题被写成了暗设。
     assert.ok(c.includes('讨论里只是提到、没有改动的已有条目不要列'), c);
     assert.ok(c.includes('不是还没想好的事'), c);
-    assert.ok(!c.includes('【设定清单合同】'), c);
+    assert.ok(!c.includes('【设定清单格式】'), c);
+  });
+
+  test('转写合同：形状是解码认的那一份，文字一律照抄', () => {
+    const j = LP.loreSettleJsonContract();
+    assert.ok(j.includes('【落定设定 JSON 合同】') && j.includes('{"entries":[{"title"') && j.includes('"questions"'), j);
+    assert.ok(j.includes('原文只有「还没定的问题」一节时 entries 给 []'), j);
+    assert.ok(j.includes('文字一律从原文照抄'), j);
   });
 });
 

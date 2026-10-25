@@ -258,8 +258,8 @@ export interface BuildRequest {
 
 /** 多步生成里除第一步之外的那几步。 */
 export type ChainStep =
-  /** 角色图谱第二步：按冻结的身份清单补这几个人的详情。 */
-  | { kind: 'rosterDetails'; manifest: string; slotIds: string[]; done: string }
+  /** 角色图谱第二步：按冻结的身份清单补这几个人的详情。`done` 是前几批已经写好的人（名字）。 */
+  | { kind: 'rosterDetails'; manifest: string; names: string[]; done: string }
   /** 设定清单第二步：按冻结的清单补这几条的正文。`done` 是前几批已经写好的条目（名字与一句话）。 */
   | { kind: 'loreListDetails'; manifest: string; titles: string[]; done: string }
   /** 细纲批次里某一章的紧凑重建：上一次截断或解不出来，只重做这一章。 */

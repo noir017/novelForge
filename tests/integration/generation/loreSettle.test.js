@@ -10,6 +10,7 @@
  * | 放弃 | 覆盖审阅里放弃了那一条原样留着，别的照写 |
  * | 重来 | 会话已经回到原来的目标，重来一轮照样换过去再回来 |
  * | 拦下 | 一句都没聊过、输入框也空着：不调模型；解析不了：没有卡片、不写入、照样回到原来的目标；一条都没定下来：没有卡片，气泡里说清 |
+ * | 按格式写、转写成 JSON | 2026-10-25 起按小标题写，转写模型照抄成 JSON：转写只带合同与原文，照抄的落盘；只写了「还没定的问题」的照样认成一条都没定 |
  * | 会话 | 存下的落定草稿读回来还是落定设定，不是设定清单 |
  */
 const { describe, test, before, after } = require('node:test');
@@ -248,8 +249,9 @@ describe('落定', () => {
     assert.ok(user.includes('作者写的：七层楼。'), user.slice(0, 2000));
     assert.ok(user.includes('暗设（读者还不知道）') && user.includes('作者写的：阁主是前朝太子。'), user.slice(0, 2000));
     assert.ok(user.includes('- 青云宗〔宗门〕：正道第一宗'), user.slice(0, 2000));
-    assert.ok(user.includes('【不可变落定设定 JSON 合同】'), user.slice(-1500));
-    assert.ok(!user.includes('【设定清单合同】'));
+    // 2026-10-25 起按小标题写，不写 JSON（JSON 合同挪给转写那一步）。
+    assert.ok(user.includes('【落定格式】') && user.includes('不写 JSON') && !user.includes('{"entries"'), user.slice(-1500));
+    assert.ok(!user.includes('【设定清单格式】'));
   });
 
   test('装配明细：命中的来源写的是「讨论里提到」', () => {
@@ -356,12 +358,14 @@ describe('拦下：解析不了、一条都没定', () => {
     assert.deepEqual(controller.current.target, PLOT3);
   });
 
-  test('JSON 语法坏了修一次（只改标点）：一共 2 次', async () => {
+  // 2026-10-25 起语法修复那一次换成转写：坏了语法的 JSON 交给转写理顺，照抄的收下。
+  test('JSON 语法坏了交给转写理顺：一共 2 次', async () => {
     const broken = '{"entries":[{"title":"乱葬岗","category":"地域","keywords":[],"brief":"城外" "body":{"概要":"城外的坟地。"}}],"questions":[]}';
     const fixed = '{"entries":[{"title":"乱葬岗","category":"地域","keywords":[],"brief":"城外", "body":{"概要":"城外的坟地。"}}],"questions":[]}';
     const gate = await settle([broken, fixed]);
     assert.equal(fake.callCount(), 2);
-    assert.ok(gate.detail.includes('修了一次（只改标点）') && gate.detail.includes('一共调了 2 次模型'), gate.detail);
+    assert.ok(fake.calls[1][0].content.includes('格式转写员'), fake.calls[1][0].content);
+    assert.ok(gate.detail.includes('一共调了 2 次模型'), gate.detail);
     assert.ok(fs.existsSync(path.join(t.dir, '.novelforge/lore/地域/乱葬岗.md')));
   });
 
@@ -372,6 +376,65 @@ describe('拦下：解析不了、一条都没定', () => {
     assert.equal(turn.error, undefined);
     assert.ok(turn.content.startsWith('讨论里还没有定下来的设定') && turn.content.includes(`1. ${QUESTION}`), turn.content);
     assert.equal(turn.artifact, undefined);
+  });
+});
+
+// 2026-10-25 起按小标题写，转写模型照抄成 JSON（features/transcribe.ts）。
+describe('按格式写、转写成 JSON', () => {
+  const PROSE = [
+    '## 乱石滩',
+    '### 分类',
+    '地域',
+    '### 关键词',
+    '石滩',
+    '### 一句话',
+    '城南河边的乱石滩',
+    '### 概要',
+    '城南河边的一片乱石滩，夜里有人在这里交易。',
+    '### 规则与边界',
+    '只认铜钱，不认银票。',
+    '### 现状',
+    '（未交代）',
+    '### 暗设',
+    '无',
+    '## 还没定的问题',
+    `- ${QUESTION}`,
+  ].join('\n');
+  const COPIED = {
+    entries: [
+      {
+        title: '乱石滩',
+        category: '地域',
+        keywords: ['石滩'],
+        brief: '城南河边的乱石滩',
+        body: { 概要: '城南河边的一片乱石滩，夜里有人在这里交易。', 规则与边界: '只认铜钱，不认银票。', 现状: '（未交代）', 暗设: '无' },
+      },
+    ],
+    questions: [QUESTION],
+  };
+
+  test('写一次、转一次：转写只带合同与原文，照抄的落盘', async () => {
+    h.setReviewVerdict('apply');
+    const gate = await settle([PROSE, COPIED]);
+    assert.equal(fake.callCount(), 2);
+    const system = fake.calls[1][0].content;
+    const user = fake.calls[1][fake.calls[1].length - 1].content;
+    assert.ok(system.includes('格式转写员'), system);
+    assert.ok(user.includes('【落定设定 JSON 合同】') && user.includes('【原文】') && user.includes('只认铜钱，不认银票。'), user);
+    assert.ok(!user.includes('作者写的：七层楼。'), user);
+    assert.ok(gate, JSON.stringify(toasts()));
+    assert.ok(gate.detail.includes(QUESTION), gate.detail);
+    const made = (await listLore()).find((e) => e.title === '乱石滩');
+    assert.ok(made && made.body.includes('只认铜钱，不认银票。'), JSON.stringify(made));
+  });
+
+  test('只写了「还没定的问题」：照样认成一条都没定，气泡里说清', async () => {
+    const gate = await settle([`## 还没定的问题\n- ${QUESTION}`, { entries: [], questions: [QUESTION] }]);
+    assert.equal(gate, undefined);
+    assert.equal(fake.callCount(), 2);
+    const turn = controller.current.turns.at(-1);
+    assert.equal(turn.error, undefined);
+    assert.ok(turn.content.startsWith('讨论里还没有定下来的设定') && turn.content.includes(`1. ${QUESTION}`), turn.content);
   });
 });
 

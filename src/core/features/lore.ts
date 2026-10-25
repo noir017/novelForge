@@ -552,8 +552,9 @@ type ExpandOutcome =
  *   先按细纲「设定」一节的分类建空条目（同单条「展开…」与细纲带出新设定，`createPlannedLoreAt`）。
  * - 只写 {@link loreBatchExpandable} 的（空的、占位的、机器写的薄条目）：作者写过的跳过，确认框与完成提示里都说出来
  *   （第 19 条批量那一面：不问、不覆盖）。跑的这几十秒里作者改了某一条，落盘前再认一遍，改过就不写。
- * - 同一份展开合同与装配（对话页单条设定那个目标，`poolIO`），每条 1 次；语法坏了修一次、解析不了重来一次，合计上限 2 次
- *   （{@link LORE_EXPAND_BATCH_CALLS}）；被输出上限截断不重来。写下的记作机器写的（`bodyHash`），水位同整合、不往回退。
+ * - 同一份展开合同与装配（对话页单条设定那个目标，`poolIO`），每条写 1 次、转写 1 次（2026-10-25 起改成转写）；转写不合格
+ *   重转一次、整理不出来重写一次，两样不叠加，合计上限 4 次（{@link LORE_EXPAND_BATCH_CALLS}）；被输出上限截断不重写。
+ *   写下的记作机器写的（`bodyHash`），水位同整合、不往回退。
  * - 建议拆出的子条目照建空条目，**不在同一批里接着展开**；还没定的问题批量没处放，丢掉（要问题就单条展开）。
  * - 模型走「故事架构」档（设计稿 #12：展开是创作，和设定清单同一档），不带思考深度（第 26 条）。失败挂在那一条上（第 16 条）。
  *
@@ -609,7 +610,7 @@ export async function expandLoreEntries(
     ]
       .filter(Boolean)
       .join('\n\n'),
-    tasks: ['setting'],
+    tasks: ['setting', 'transcribe'],
     contextDetail: true,
   });
   if (answer?.action !== '开始展开') {
@@ -724,17 +725,28 @@ async function expandOne(
   const known = await loreExpandKnown(project, target);
   const label = `展开设定「${known.title}」`;
   const io = poolIO(project, pool, config, signal, { action: { stage: 'setting', capability: 'generate' }, target, ask: '' });
-  const counted = { ...io.chain, call: (...args: Parameters<typeof io.chain.call>) => (onCall(), io.chain.call(...args)) };
+  // 转写也算一次调用（完成提示报的总数，第 4 条）。
+  const transcribe = io.chain.transcribe!;
+  const counted = {
+    ...io.chain,
+    call: (...args: Parameters<typeof io.chain.call>) => (onCall(), io.chain.call(...args)),
+    transcribe: (...args: Parameters<typeof transcribe>) => (onCall(), transcribe(...args)),
+  };
   const messages = await counted.build({});
   let result: ChainResult | undefined;
   for (let attempt = 1; !result; attempt++) {
     const first = await counted.call(messages, label);
     try {
-      // 第二次是重来：上限只剩这一次，不再修（LORE_EXPAND_BATCH_CALLS）。
-      result = await completeLoreExpand(first, { ...counted, messages }, known, { repair: attempt === 1 });
+      // 第二次是重写：转写不合格不再重转（LORE_EXPAND_BATCH_CALLS）。
+      result = await completeLoreExpand(first, { ...counted, messages }, known, { retranscribe: attempt === 1 });
     } catch (err) {
+      // 只重写一次；重写连带转写一次，余量要够两次：第一次已经重转过的不再重写（两样不叠加）。
       const again =
-        err instanceof ChainError && !signal.aborted && first.stop !== 'maxTokens' && io.calls() < LORE_EXPAND_BATCH_CALLS.max;
+        attempt === 1 &&
+        err instanceof ChainError &&
+        !signal.aborted &&
+        first.stop !== 'maxTokens' &&
+        io.calls() + 2 <= LORE_EXPAND_BATCH_CALLS.max;
       if (!again) {
         throw err;
       }

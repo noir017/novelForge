@@ -10,7 +10,8 @@
  * | 作者写过的先对比 | 有内容（含只写了暗设）的走覆盖审阅；放弃了一个字不动、子条目也不建 |
  * | 只给名字 | 先在分类目录下建空条目再展开；是人名就报错、不问不建；取消就什么都不做 |
  * | 路径上还没有文件 | 按路径新建、标题取文件名；是人名的不建 |
- * | 解析不了 | 没有卡片、不写入、失败挂在这一条上；语法坏了修一次（共 2 次） |
+ * | 解析不了 | 没有卡片、不写入、失败挂在这一条上；语法坏了交给转写理顺（共 2 次） |
+ * | 按格式写、转写成 JSON | 2026-10-25 起按小标题写，转写模型照抄成 JSON：转写只带合同与原文；两次都改字就不给写入，原文留在气泡里 |
  * | 单章细纲建空条目 | `isNew` 的新设定随单章细纲建空条目，卡片上先列出来（§3） |
  * | 会话 | 存下的草稿目标读回来还是这一条，不是整批设定清单 |
  */
@@ -262,9 +263,10 @@ describe('装配', () => {
 
   test('系统提示与合同是展开那一份，不借设定清单、不按正文「整理」', () => {
     assert.ok(b.messages[0].content.includes('这一次只管一条设定：把它往前想细'), b.messages[0].content.slice(0, 300));
-    assert.ok(user.includes('【不可变设定展开 JSON 合同】'), user.slice(-1500));
+    // 2026-10-25 起按小标题写，不写 JSON（JSON 合同挪给转写那一步）。
+    assert.ok(user.includes('【展开格式】') && user.includes('不写 JSON') && !user.includes('{"brief"'), user.slice(-1500));
     assert.ok(user.includes('2–5 条还没定、要作者拍板的问题'));
-    assert.ok(!user.includes('【设定清单合同】') && !user.includes('# 已写正文'), user.slice(-3000));
+    assert.ok(!user.includes('【设定清单格式】') && !user.includes('# 已写正文'), user.slice(-3000));
     assert.ok(!b.messages[0].content.includes('不补完、不推测'));
   });
 
@@ -355,7 +357,7 @@ describe('只有一句话的：直接写', () => {
 
   test('先问一句要求（报调用次数），再发一轮生成：1 次，作者的话进上下文', () => {
     assert.equal(h.inputs.length, 1);
-    assert.ok(h.inputs[0].title.includes('天机阁') && h.inputs[0].prompt.includes('预计 1 次调用，最多 2 次'), JSON.stringify(h.inputs[0]));
+    assert.ok(h.inputs[0].title.includes('天机阁') && h.inputs[0].prompt.includes('预计 2 次调用，最多 3 次'), JSON.stringify(h.inputs[0]));
     assert.equal(fake.callCount(), 1);
     assert.ok(userOf(0).includes('阁规要严一些'));
     assert.ok(systemOf(0).includes('把它往前想细'));
@@ -365,8 +367,10 @@ describe('只有一句话的：直接写', () => {
     assert.equal(h.confirms.length, 1);
     const [c] = h.confirms;
     assert.deepEqual(c.actions, ['开始展开']);
-    assert.ok(c.message.includes('展开设定「天机阁」') && c.message.includes('预计 1 次调用，最多 2 次'), c.message);
+    assert.ok(c.message.includes('展开设定「天机阁」') && c.message.includes('预计 2 次调用，最多 3 次'), c.message);
     assert.equal(c.call.model, 'p/m');
+    // 转写不跟这一次挑的模型：单列一行（2026-10-25 起）。
+    assert.ok(c.call.fixed?.some((line) => line.includes('转写')), JSON.stringify(c.call));
     assert.ok(c.call.contextDetail, JSON.stringify(c.call));
     assert.equal(fake.calls[0].ref, 'p/m');
   });
@@ -572,16 +576,91 @@ describe('解析不了', () => {
     assert.equal(fake.callCount(), 1);
   });
 
-  test('JSON 语法坏了修一次（只改标点）：一共 2 次，卡片上说出来', async () => {
+  // 2026-10-25 起语法修复那一次换成转写：坏了语法的 JSON 一律交给转写理顺，照抄的收下。
+  test('JSON 语法坏了交给转写理顺：一共 2 次', async () => {
     const broken = '{"brief":"正道第一宗","keywords":[],"body":{"概要":"剑修。" "现状":"封山。"},"children":[],"questions":[]}';
     const fixed = '{"brief":"正道第一宗","keywords":[],"body":{"概要":"剑修。", "现状":"封山。"},"children":[],"questions":[]}';
     fake.reset([{ text: broken, stop: 'end' }, { text: fixed, stop: 'end' }]);
     h.setReviewVerdict('apply');
     const gate = await expand({ relPath: '.novelforge/lore/宗门/青云宗.md' }, '');
     assert.equal(fake.callCount(), 2);
-    assert.ok(userOf(1).includes('【不可变设定展开 JSON 合同】'), userOf(1).slice(0, 500));
-    assert.ok(gate.detail.includes('修了一次（只改标点）') && gate.detail.includes('一共调了 2 次模型'), gate.detail);
+    assert.ok(systemOf(1).includes('格式转写员') && userOf(1).includes('【设定展开 JSON 合同】'), userOf(1).slice(0, 500));
+    assert.ok(gate.detail.includes('一共调了 2 次模型'), gate.detail);
     assert.ok(read('.novelforge/lore/宗门/青云宗.md').includes('封山。'));
+  });
+});
+
+// 2026-10-25 起按小标题写，转写模型照抄成 JSON（features/transcribe.ts）。
+describe('按格式写、转写成 JSON', () => {
+  const DHD = '.novelforge/lore/地域/断魂渡.md';
+  const PROSE = [
+    '## 一句话',
+    '断魂河上的老渡口',
+    '## 关键词',
+    '魂渡、老渡',
+    '## 概要',
+    '断魂河上的老渡口，归船帮。',
+    '## 规则与边界',
+    '只在子时开船，一船不过七人。',
+    '## 现状',
+    '（未交代）',
+    '## 暗设',
+    '船帮帮主是十年前失踪的捕头。',
+    '## 子条目',
+    '- 船帮（势力）：把持断魂渡的帮会',
+    '## 还没定的问题',
+    '- 船帮收不收外人？',
+  ].join('\n');
+  const copied = (rule) =>
+    JSON.stringify({
+      brief: '断魂河上的老渡口',
+      keywords: ['魂渡', '老渡'],
+      body: { 概要: '断魂河上的老渡口，归船帮。', 规则与边界: rule, 现状: '（未交代）', 暗设: '船帮帮主是十年前失踪的捕头。' },
+      children: [{ name: '船帮', category: '势力', brief: '把持断魂渡的帮会' }],
+      questions: ['船帮收不收外人？'],
+    });
+
+  before(() => {
+    t.write(DHD, entry('断魂渡', { brief: '渡口' }));
+    project.invalidate();
+  });
+
+  test('写一次、转一次：转写只带合同与原文，照抄的落盘、子条目建空条目', async () => {
+    fake.reset([
+      { text: PROSE, stop: 'end' },
+      { text: copied('只在子时开船，一船不过七人。'), stop: 'end' },
+    ]);
+    const gate = await expand({ relPath: DHD }, '');
+    assert.equal(fake.callCount(), 2);
+    assert.ok(systemOf(0).includes('把它往前想细') && !systemOf(0).includes('格式转写员'));
+    assert.ok(systemOf(1).includes('格式转写员'), systemOf(1));
+    assert.ok(userOf(1).includes('【原文】') && userOf(1).includes('只在子时开船，一船不过七人。'), userOf(1));
+    assert.ok(!userOf(1).includes('# 定稿过的记录') && !userOf(1).includes('# 相关世界观设定'), userOf(1));
+    assert.ok(gate, JSON.stringify(posted.filter((m) => m.type === 'toast')));
+    assert.ok(gate.detail.includes('一共调了 2 次模型'), gate.detail);
+    const text = read(DHD);
+    assert.ok(text.includes('只在子时开船，一船不过七人。') && text.includes('## 暗设'), text);
+    assert.ok((await listLore()).some((e) => e.title === '船帮'));
+  });
+
+  test('转写两次都改了字：不给写入，原文留在气泡里', async () => {
+    t.write(DHD, entry('断魂渡', { brief: '渡口' }));
+    project.invalidate();
+    const before4 = read(DHD);
+    const reworded = copied('子时开船，最多载七人。');
+    fake.reset([
+      { text: PROSE, stop: 'end' },
+      { text: reworded, stop: 'end' },
+      { text: reworded, stop: 'end' },
+    ]);
+    const gate = await expand({ relPath: DHD }, '');
+    assert.equal(gate, undefined);
+    assert.equal(fake.callCount(), 3);
+    assert.ok(userOf(2).includes('【上次转写不合格】这几处不是原文里的字'), userOf(2).slice(0, 600));
+    assert.equal(read(DHD), before4);
+    const turn = controller.current.turns[controller.current.turns.length - 1];
+    assert.ok(turn.error && turn.error.includes('展开解析不出来'), turn.error);
+    assert.ok(turn.content.includes('只在子时开船，一船不过七人。'), turn.content.slice(0, 300));
   });
 });
 

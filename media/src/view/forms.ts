@@ -96,7 +96,8 @@ export function openIdeaForm(defaults?: IdeaDefaults): void {
       },
     ],
     note: (v) => ({
-      text: `全书约 ${totalWords(Number(v.totalChapters) * Number(v.wordsPerChapter))} · ${describeCalls(CONFIG_CALLS)} · Ctrl+Enter 提交`,
+      // 原因（写 1 次、转写 1 次……）太长，这一行只报数；主按钮的提示里有全句。
+      text: `全书约 ${totalWords(Number(v.totalChapters) * Number(v.wordsPerChapter))} · ${describeCalls(CONFIG_CALLS).replace(/（.*）$/, '')} · Ctrl+Enter 提交`,
     }),
     submitLabel: '生成小说配置',
     onSubmit: (v) => {

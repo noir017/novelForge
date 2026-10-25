@@ -129,9 +129,9 @@ function reply(messages) {
   if (card && (user.includes('黄金第一章') || user.includes('连载更新核心法则'))) {
     return manuscript(Number(card[1]));
   }
-  if (user.includes('【JSON 字段结构】')) return CONFIG_JSON;
+  if (user.includes('【小说配置格式】')) return CONFIG_JSON;
   // 设定清单：三条一批就补完详情。
-  if (user.includes('【设定清单合同】')) {
+  if (user.includes('【设定清单格式】')) {
     return JSON.stringify({
       categories: ['地域', '信物', '制度'],
       entries: [
@@ -146,13 +146,12 @@ function reply(messages) {
     return JSON.stringify({ entries: titles.map((title) => ({ title, body: `## 概要\n${title}。` })) });
   }
   if (user.includes('【冻结身份与关系清单】')) {
-    const ids = /【本批必须完整生成的 slotId】\n([^\n]+)/.exec(user)[1].split('、');
-    const names = { 1: '林昭', 2: '沈氏', 3: '李叔' };
+    const names = /【本批要写详情的人】\n([^\n]+)/.exec(user)[1].split('、');
     return JSON.stringify({
-      entries: ids.map((id) => ({ slotId: id, name: names[id], 身份: `${names[id]}的身份`, 性格: '冷', 当前状态: '在青崖镇' })),
+      entries: names.map((name) => ({ name, 身份: `${name}的身份`, 性格: '冷', 当前状态: '在青崖镇' })),
     });
   }
-  if (user.includes('{"slots":[...]}')) return MANIFEST;
+  if (user.includes('【身份清单格式】')) return MANIFEST;
   if (user.includes('「故事前提」')) return PREMISE;
   if (user.includes('「世界观」')) return WORLD;
   if (user.includes('整合为全书的情节大纲')) return OUTLINE;

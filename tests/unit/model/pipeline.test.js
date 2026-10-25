@@ -137,7 +137,7 @@ describe('pipeline.ts · Stage × Capability', () => {
       assert.equal(last.stage, 'setting');
       assert.deepEqual(last.target, { kind: 'setting', doc: 'lore' });
       assert.ok(last.keys.includes('ldsd') && last.keys.includes('ld'), last.keys.join(','));
-      assert.ok(last.hint.includes('预计 1 次调用，最多 2 次'), last.hint);
+      assert.ok(last.hint.includes('预计 2 次调用，最多 3 次'), last.hint);
     }
   });
 
@@ -983,21 +983,25 @@ describe('pipeline.ts · 全书状态推导', () => {
     const none = { config: false, premise: false, characters: false, world: false, lore: false };
     const config = pipeline.deriveBookNextStep('setting', book({ settings: none }));
     assert.deepEqual(config.calls, pipeline.CONFIG_CALLS);
+    // 2026-10-25 起写完转写一次：写 1 + 转写 1；截断重写、重转、全局要求重写各 1。
+    assert.deepEqual([config.calls.low, config.calls.high, config.calls.max], [2, 2, 5]);
+    assert.ok(config.calls.why.includes('转写'), config.calls.why);
     // 配置要先填一句话与规模，主按钮打开表单而不是直接发送。
     assert.equal(config.form, 'idea');
 
     const roster = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, characters: false } }));
-    assert.deepEqual(roster.calls, { low: 2, high: 4, max: 16 });
+    // 清单 1 次 + 详情每批 3 人，每次写完转写 1 次；上限：清单写 2 + 转写 2，详情写 13 次、各转写 1 次，再重转 1 次。
+    assert.deepEqual([roster.calls.low, roster.calls.high, roster.calls.max], [4, 8, 31]);
     assert.equal(roster.form, undefined);
 
     const premise = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, premise: false } }));
     assert.deepEqual(premise.calls, pipeline.ONE_CALL);
 
-    // 设定清单：清单 1 次 + 详情每批 6 条（12–30 条）；上限封顶 12。
+    // 设定清单：清单 1 次 + 详情每批 6 条（12–30 条），每次写完转写 1 次；上限封顶 24（写与转写都算）。
     const lore = pipeline.deriveBookNextStep('setting', book({ settings: { ...all, lore: false } }));
-    assert.deepEqual(lore.calls, { low: 3, high: 6, max: 12 });
+    assert.deepEqual([lore.calls.low, lore.calls.high, lore.calls.max], [6, 12, 24]);
     assert.deepEqual(pipeline.loreListCalls(), lore.calls);
-    assert.equal(pipeline.LORE_LIST_CALLS_MAX, 12);
+    assert.equal(pipeline.LORE_LIST_CALLS_MAX, 24);
     assert.deepEqual(pipeline.settingCalls('lore'), lore.calls);
     assert.deepEqual(pipeline.settingCalls('characters'), pipeline.rosterCalls());
 

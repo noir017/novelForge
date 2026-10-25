@@ -4,8 +4,8 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 待完善的 `authored` | 三节全是「（未交代）」却没盖过机器的章、明面空着只写了暗设的，标成作者写过（「全部展开」跳过）；空的、占位的、机器写的不标；`thinLoreFor` 只留要用到那几章的 |
- * | 全部展开 | 先报次数（每条 1 次、最多 2 次，并发不改变这个数）与跳过谁；还没有条目的先按「设定」一节的分类建空条目；只写空的、占位的、机器写的；正文换成展开后的、记作机器写的、水位同整合；关键词只增不减、人名不收；子条目建空条目、不接着展开；还没定的问题不写进任何文件；作者写过的一个字不动 |
- * | 次数上限 | 语法坏了修一次、解析不了重来一次，两样不叠加（每条最多 2 次）；被截断不重来；还不行算失败，挂在那一条上（第 16 条）；完成提示说清写了几条、跳过几条、失败几条 |
+ * | 全部展开 | 先报次数（每条 2 次、最多 4 次——2026-10-25 起写完转写一次，并发不改变这个数）与跳过谁；还没有条目的先按「设定」一节的分类建空条目；只写空的、占位的、机器写的；正文换成展开后的、记作机器写的、水位同整合；关键词只增不减、人名不收；子条目建空条目、不接着展开；还没定的问题不写进任何文件；作者写过的一个字不动 |
+ * | 次数上限 | 转写不合格重转一次、整理不出来重写一次，两样不叠加（每条最多 4 次）；坏了语法的 JSON 交给转写理顺；被截断不重来；还不行算失败，挂在那一条上（第 16 条）；完成提示说清写了几条、跳过几条、失败几条 |
  * | 落盘前再认一遍 | 展开的这几十秒里作者写了字的，不写、说出来 |
  * | 没有能写的 | 全是作者写过的：不问、不调，说清去单条展开 |
  * | 拆完展开本批新设定 | 缺省不展开；选了就在拆完后按这一次新建的那几条再问一次次数，答了才展开；取消只是不展开 |
@@ -263,26 +263,29 @@ describe('全部展开', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('先报次数：每条 1 次、最多 2 次；说清跳过谁、谁先建空条目、用哪一档', () => {
+  test('先报次数：每条 2 次（写、转写各 1）、最多 4 次；说清跳过谁、谁先建空条目、用哪一档', () => {
     const c = h.confirms[0];
-    assert.match(c.message, /^展开 4 条设定：预计 4 次调用，最多 8 次（语法坏了修一次、解析不了重来一次，两样合计最多再 1 次）。/, c.message);
+    assert.match(c.message, /^展开 4 条设定：预计 8 次调用，最多 16 次（写 1 次、转写 1 次；转写不合格重转 1 次，或者整理不出来时这一条重写、再转写 1 次，两样不叠加）。/, c.message);
     assert.ok(c.detail.includes('要展开的：天机阁、藏经阁、九层楼、断魂香'), c.detail);
     assert.ok(c.detail.includes('其中 1 条还没有条目，先按细纲「设定」一节里的分类建空条目'), c.detail);
     assert.ok(c.detail.includes('跳过你写过的 2 条：后山、秘药'), c.detail);
     // 用哪一档列在模型下拉框下面（「按分档」时）；展开看详细度，那个下拉框也在。
     assert.ok(c.call.tiers.join('\n').includes('故事架构'), c.call.tiers.join('\n'));
+    // 转写不跟这一次挑的模型：单列一行。
+    assert.ok(c.call.fixed?.some((line) => line.includes('转写')), JSON.stringify(c.call));
     assert.equal(c.call.contextDetail, 3);
     assert.deepEqual(c.actions, ['开始展开']);
   });
 
-  test('实际调用：1 + 2（重来）+ 2（修一次）+ 2（重来仍不行）= 7，返回的就是它', () => {
+  // 九层楼：坏了语法的 JSON 交给转写理顺（2026-10-25 起，从前是修一次），一样是 2 次。
+  test('实际调用：1 + 2（重写）+ 2（转写理顺）+ 2（重写仍不行）= 7，返回的就是它', () => {
     assert.equal(fake.callCount(), 7);
     assert.equal(calls, 7);
   });
 
   test('装配同对话页的单条设定目标：展开合同、这一条在焦点上', () => {
     const user = fake.calls[0][fake.calls[0].length - 1].content;
-    assert.ok(user.includes('【不可变设定展开 JSON 合同】'), user.slice(-800));
+    assert.ok(user.includes('【展开格式】') && user.includes('不写 JSON'), user.slice(-800));
     assert.ok(user.includes('【天机阁〔宗门〕】'), user.slice(0, 2000));
     assert.ok(user.includes('林昭夜入天机阁'), '已排细纲里用到它的地方');
   });
@@ -371,7 +374,8 @@ describe('次数上限与失败', () => {
     assert.ok(f?.message.includes('截断'), JSON.stringify(f));
   });
 
-  test('修过一次仍解析不了：不再重来（每条最多 2 次）', async () => {
+  // 写 1 + 转写 1 + 重转 1 = 3：已经重转过就不再重写（两样不叠加），转写的调用也算进返回的次数。
+  test('重转过一次仍解析不了：不再重写（每条最多 4 次）', async () => {
     resetReplies({
       天机阁: [
         { text: '{"brief":"卖消息的" "body":{}}', stop: 'end' },
@@ -380,8 +384,26 @@ describe('次数上限与失败', () => {
     });
     h.expect('开始展开');
     const n = await bundle.lore.expandLoreEntries(t.project, [TJG]);
+    assert.equal(n, 3);
+    assert.equal(fake.callCount(), 3);
+    assert.ok(fake.calls[1][0].content.includes('格式转写员') && fake.calls[2][0].content.includes('格式转写员'));
+  });
+
+  // 按格式写的原文（2026-10-25 起）：写 1 + 转写 1，照抄的落盘；返回的次数含转写那一次。
+  test('按格式写、转写成 JSON：2 次，照抄的落盘', async () => {
+    const prose = ['## 一句话', '卖消息的楼', '## 关键词', '天机楼', '## 概要', '九层的楼。', '## 规则与边界', '一问一价。', '## 现状', '（未交代）', '## 暗设', '无', '## 子条目', '无', '## 还没定的问题', '无'].join('\n');
+    const copied = expansion({ brief: '卖消息的楼', keywords: ['天机楼'], body: { 概要: '九层的楼。', 规则与边界: '一问一价。', 现状: '（未交代）', 暗设: '无' } });
+    const original = t.read(TJG);
+    resetReplies({ 天机阁: [{ text: prose, stop: 'end' }, { text: copied, stop: 'end' }] });
+    h.expect('开始展开');
+    const n = await bundle.lore.expandLoreEntries(t.project, [TJG]);
     assert.equal(n, 2);
-    assert.equal(fake.callCount(), 2);
+    const user = fake.calls[1][fake.calls[1].length - 1].content;
+    assert.ok(fake.calls[1][0].content.includes('格式转写员') && user.includes('【原文】') && user.includes('九层的楼。'), user.slice(0, 600));
+    assert.ok(t.read(TJG).includes('九层的楼。'), t.read(TJG));
+    // 放回去：后面几条还要拿它当只有一句话的条目展开。
+    t.write(TJG, original);
+    t.project.invalidate();
   });
 
   test('重来那一次就成了：失败记录收掉', async () => {
@@ -507,7 +529,7 @@ describe('拆完展开本批新设定', () => {
     const n = await bundle.batch.generatePlots(project, { range: { from: 2, to: 2 }, call: {}, expandLore: true });
     project.invalidate();
     assert.equal(h.confirms.length, 1, JSON.stringify(h.confirms));
-    assert.match(h.confirms[0].message, /^第 2 章拆出了 1 条新设定。展开 1 条设定：预计 1 次调用，最多 2 次/);
+    assert.match(h.confirms[0].message, /^第 2 章拆出了 1 条新设定。展开 1 条设定：预计 2 次调用，最多 4 次/);
     assert.ok(h.confirms[0].detail.includes('要展开的：鬼市'), h.confirms[0].detail);
     const e = (await project.listLore()).find((x) => x.title === '鬼市');
     assert.ok(e.body.includes('暗河下的集市。'), e.body);

@@ -937,10 +937,16 @@ export const PLOT_CHECK_CALLS: CallEstimate = {
 };
 
 /**
- * 小说配置：1 次；输出被截断时整份重来 1 次；「全局要求」不合格时只重写这一节 1 次。
- * 与 AI-Novel-Writer 的 `GenerateConfigCommand` 同一套重试（`architecture.command.ts:1033-1123`）。
+ * 小说配置：写 1 次、转写模型照抄成 JSON 1 次（2026-10-25 起改成转写）；输出被截断时整份重写 1 次，转写不合格重转 1 次，
+ * 「全局要求」不合格时只重写这一节 1 次（纯文本，不转写）。与 AI-Novel-Writer 的 `GenerateConfigCommand` 同一套重试
+ * （`architecture.command.ts:1033-1123`）。
  */
-export const CONFIG_CALLS: CallEstimate = { low: 1, high: 1, max: 3 };
+export const CONFIG_CALLS: CallEstimate = {
+  low: 2,
+  high: 2,
+  max: 5,
+  why: '写 1 次、转写模型照抄成 JSON 1 次；被截断时整份重写 1 次，转写不合格重转 1 次，「全局要求」不合格只重写这一节 1 次',
+};
 
 /**
  * 定稿一章（叙事线重做，设计稿「三」）：照正文反向更新细纲 1 次（连续性事实的证据用 bigram 找，不调模型），本章出场的人
@@ -1064,33 +1070,34 @@ export function loreEntryCalls(n: number): CallEstimate {
 }
 
 /**
- * 展开一条设定（完善设定，2026-10-19）：1 次；交回来的 JSON 语法坏了（标点错，内容是全的）时修一次——
- * 只许改标点（generation/structured.ts 的 `completeLoreExpand`）。截断与解析不了都不重来：没有产物、不给写入。
+ * 展开一条设定（完善设定，2026-10-19）：写 1 次、转写模型照抄成 JSON 1 次（2026-10-25 起改成转写），转写不合格重转 1 次
+ * （generation/structured.ts 的 `completeLoreExpand`）。截断与转写不成都不重写：没有产物、不给写入。
  * 右键菜单、对话页问要求的那一句与 MCP 报的都是这一份（第 4 条）。
  */
 export const LORE_EXPAND_CALLS: CallEstimate = {
-  low: 1,
-  high: 1,
-  max: 2,
-  why: 'JSON 语法坏了时修一次，只改标点',
+  low: 2,
+  high: 2,
+  max: 3,
+  why: '写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次',
 };
 
 /**
- * 落定设定（完善设定二期）：1 次；JSON 语法坏了时修一次，只许改标点（generation/structured.ts 的
- * `completeLoreSettle`），同展开。截断与解析不了都不重来：没有产物、不给写入。命令面板上那一句报的是这一份（第 4 条）。
+ * 落定设定（完善设定二期）：写 1 次、转写 1 次，转写不合格重转 1 次（generation/structured.ts 的 `completeLoreSettle`），
+ * 同展开。截断与转写不成都不重写：没有产物、不给写入。命令面板上那一句报的是这一份（第 4 条）。
  */
 export const LORE_SETTLE_CALLS: CallEstimate = LORE_EXPAND_CALLS;
 
 /**
- * 批量展开一条（完善设定三期，`features/lore.ts` 的 `expandLoreEntries`）：同一条展开链，上限仍是 2 次——
- * 语法坏了修一次（同 {@link LORE_EXPAND_CALLS}）；没得修的解析不了，这一条重来一次（同 {@link LORE_ENTRY_CALLS}：
- * 批量没有气泡可看，留一段没解析开的原文没人收拾）。两样不叠加，被输出上限截断不重来。
+ * 批量展开一条（完善设定三期，`features/lore.ts` 的 `expandLoreEntries`）：同一条展开链，写 1 次、转写 1 次——转写不合格
+ * 重转 1 次（同 {@link LORE_EXPAND_CALLS}）；没转成、也没重转过的（原文不成样子、转写调用失败），这一条重写 1 次、再转写
+ * 1 次（同 {@link LORE_ENTRY_CALLS}：批量没有气泡可看，留一段没整理开的原文没人收拾）。两样不叠加，上限 4 次；被输出上限
+ * 截断不重写。
  */
 export const LORE_EXPAND_BATCH_CALLS: CallEstimate = {
-  low: 1,
-  high: 1,
-  max: 2,
-  why: '语法坏了修一次、解析不了重来一次，两样合计最多再 1 次',
+  low: 2,
+  high: 2,
+  max: 4,
+  why: '写 1 次、转写 1 次；转写不合格重转 1 次，或者整理不出来时这一条重写、再转写 1 次，两样不叠加',
 };
 
 /** n 条设定各批量展开一次：{@link LORE_EXPAND_BATCH_CALLS} 乘 n。 */
@@ -1221,17 +1228,19 @@ export const ROSTER_MAX = 8;
 export const ROSTER_DETAIL_BATCH = 3;
 
 /**
- * 角色图谱：身份清单 1 次 + 详情每批 3 人。
+ * 角色图谱：身份清单 1 次 + 详情每批 3 人，2026-10-25 起每一次写完都由转写模型照抄成 JSON（各 1 次）。
  *
- * 上限：清单截断重来 1 次；详情截断时逐批对半拆，n 人最坏是一棵满二叉树
- * （2n − 批数 次）；另留 1 次语法修复。8 人时是 2 + 13 + 1 = 16。
+ * 上限：清单截断重写 1 次、转写不合格重转 1 次（写 2 + 转写 2）；详情截断或转写不成时逐批对半拆，n 人最坏是一棵满二叉树
+ * （写 2n − 批数 次，每次转写 1 次），详情的转写全程再重转 1 次。8 人时是 2 + 2 + 13 × 2 + 1 = 31。
  */
 export function rosterCalls(): CallEstimate {
   const batches = (n: number) => Math.ceil(n / ROSTER_DETAIL_BATCH);
+  const detailWrites = 2 * ROSTER_MAX - batches(ROSTER_MAX);
   return {
-    low: 1 + batches(ROSTER_MIN),
-    high: 1 + batches(ROSTER_MAX),
-    max: 2 + (2 * ROSTER_MAX - batches(ROSTER_MAX)) + 1,
+    low: 2 * (1 + batches(ROSTER_MIN)),
+    high: 2 * (1 + batches(ROSTER_MAX)),
+    max: 2 + 2 + detailWrites * 2 + 1,
+    why: `身份清单写 1 次、详情每批 ${ROSTER_DETAIL_BATCH} 人写 1 次，每次写完转写模型照抄成 JSON 1 次；被截断或转写不成时自动重来、拆小重试`,
   };
 }
 
@@ -1241,23 +1250,33 @@ export const LORE_LIST_MAX = 30;
 export const LORE_LIST_DETAIL_BATCH = 6;
 
 /**
- * 设定清单：清单 1 次 + 详情每批 6 条，1 + ⌈n/6⌉。
+ * 设定清单：清单 1 次 + 详情每批 6 条，写 1 + ⌈n/6⌉ 次；2026-10-25 起每一次写完都由转写模型照抄成 JSON（各 1 次）。
  *
- * 低 3（12 条）/ 高 6（30 条）。上限照角色图谱那样算会是几十次（30 条逐批对半拆到底），报给作者
- * 吓人又不真实；这里封顶 12：清单截断重来 1 次，详情 5 批里最多拆半几批、修一次语法——再坏下去链
- * 就停（`completeLoreList` 按这个数刹车，第 4 条：说了上限就不越过）。
+ * 低 6（12 条）/ 高 12（30 条）。上限照角色图谱那样算会是几十次（30 条逐批对半拆到底），报给作者
+ * 吓人又不真实；这里封顶 {@link LORE_LIST_CALLS_MAX}：清单截断或整理不出来重写 1 次、转写不合格重转，详情 5 批里最多
+ * 拆半几批、重转一次——再坏下去链就停（`completeLoreList` 按这个数刹车，转写的调用也算，第 4 条：说了上限就不越过）。
  */
 export function loreListCalls(): CallEstimate {
   const batches = (n: number) => Math.ceil(n / LORE_LIST_DETAIL_BATCH);
   return {
-    low: 1 + batches(LORE_LIST_MIN),
-    high: 1 + batches(LORE_LIST_MAX),
+    low: 2 * (1 + batches(LORE_LIST_MIN)),
+    high: 2 * (1 + batches(LORE_LIST_MAX)),
     max: LORE_LIST_CALLS_MAX,
+    why: `清单写 1 次、详情每批 ${LORE_LIST_DETAIL_BATCH} 条写 1 次，每次写完转写模型照抄成 JSON 1 次；被截断或转写不成时自动重来、拆小重试，最多 ${LORE_LIST_CALLS_MAX} 次`,
   };
 }
 
-/** 设定清单一共最多调几次模型。生成链到了这个数就不再拆半重试，没出来的条目只按清单建。 */
-export const LORE_LIST_CALLS_MAX = 12;
+/**
+ * 设定清单一共最多调几次模型（写与转写都算）。生成链到了这个数就不再拆半重试、不再重转，没出来的条目只按清单建。
+ * 从前 12 次（全是写）；改成转写后每一次写都多一次转写，翻一倍。
+ */
+export const LORE_LIST_CALLS_MAX = 24;
+
+/**
+ * 架构里写完要由转写模型照抄成 JSON 的那几件（2026-10-25 起）：配置、角色图谱、设定清单。前提、世界观本来就是小节，
+ * 不转写。确认框据此单列「转写」那一行（`askCall` 的 `tasks`）。
+ */
+export const TRANSCRIBED_SETTINGS: readonly SettingDoc[] = ['config', 'characters', 'lore'];
 
 /** 架构那一件要调几次：主按钮、补齐架构的确认框共用这一份。 */
 export function settingCalls(doc: SettingDoc): CallEstimate {

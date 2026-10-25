@@ -539,11 +539,10 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
     ...(plan.settings.some((d) => d !== 'characters') ? ['setting' as const] : []),
     ...(plan.cards ? ['characterCard' as const] : []),
     ...(plan.lore ? ['loreSynthesis' as const] : []),
-    ...(plan.cards || plan.lore ? ['transcribe' as const] : []),
     ...(plan.threads?.planFirst ? ['plotOutline' as const] : []),
     ...(plan.globalSummary || plan.threads ? ['plotSummary' as const] : []),
-    // 叙事线那几次写完都由转写模型照抄成 JSON（2026-10-25）。
-    ...(plan.threads ? ['transcribe' as const] : []),
+    // 角色卡、设定条目、叙事线、小说配置写完都由转写模型照抄成 JSON（2026-10-25 起），不跟这一次挑的模型。
+    ...(plan.cards || plan.lore || plan.threads || plan.settings.includes('config') ? ['transcribe' as const] : []),
   ];
 }
 

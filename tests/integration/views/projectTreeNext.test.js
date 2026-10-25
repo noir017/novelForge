@@ -68,7 +68,8 @@ describe('工程页的全书下一步与对话页主按钮逐字一致', () => {
     const { tree, chat } = await both();
     assert.equal(tree.next?.label, '生成设定清单', JSON.stringify(tree.next));
     assert.deepEqual(tree.next.target, { kind: 'setting', doc: 'lore' });
-    assert.deepEqual(tree.next.calls, { low: 3, high: 6, max: 12 });
+    // 2026-10-25 起清单与详情每写一次都转写一次：写 3–6 次、转写 3–6 次，封顶 24（转写也算）。
+    assert.deepEqual([tree.next.calls.low, tree.next.calls.high, tree.next.calls.max], [6, 12, 24]);
     assert.deepEqual(tree.next, chat);
     const row = tree.architecture.find((r) => r.key === 'lore');
     assert.deepEqual(row, { key: 'lore', label: '设定清单', relPath: '.novelforge/lore', filled: false, detail: '待生成' });

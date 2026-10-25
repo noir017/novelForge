@@ -3,7 +3,7 @@
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 待完善 | 只在有时出现、排在「设定」与「出现过 · 未建条目」之间、副标题写个数、默认展开；一行是 名字〔分类〕· 后端给的说明（第 N 章起要用 · 种类）；有条目的点名字打开、右键「打开」「展开…（预计 1 次调用，最多 2 次）」，展开发 `expandLore` 带 `relPath`；还没有条目的点名字不做事、右键展开带 `name` 与 `category`；菜单里列出要用到的章；筛选框也筛它 |
+ * | 待完善 | 只在有时出现、排在「设定」与「出现过 · 未建条目」之间、副标题写个数、默认展开；一行是 名字〔分类〕· 后端给的说明（第 N 章起要用 · 种类）；有条目的点名字打开、右键「打开」「展开…（预计 2 次调用，最多 3 次）」，展开发 `expandLore` 带 `relPath`；还没有条目的点名字不做事、右键展开带 `name` 与 `category`；菜单里列出要用到的章；筛选框也筛它 |
  * | 设定行的「展开…」 | 每一条都有：有待整合的与没有的两种菜单都带，发 `expandLore` 带这一条的路径；「整合这一条」照旧只在有待整合时出现 |
  */
 const { describe, test, before } = require('node:test');
@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const { mount, JSDOM_SKIP, sampleTree } = require('../../helpers/dom');
 
 const LORE = '.novelforge/lore';
-const EXPAND = '展开…（预计 1 次调用，最多 2 次）';
+const EXPAND = '展开…（预计 2 次调用，最多 3 次）';
 
 const thinTree = (extra) => ({
   ...sampleTree(),

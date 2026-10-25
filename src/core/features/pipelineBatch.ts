@@ -66,6 +66,7 @@ import {
   SETTING_DOCS,
   SETTING_DOC_LABEL,
   SettingDoc,
+  TRANSCRIBED_SETTINGS,
   WRITE_BATCH_DEFAULT,
   WriteBatchMode,
   WriteBatchPlan,
@@ -297,8 +298,11 @@ export async function completeSettings(project: NovelProject): Promise<number> {
       (written > 0 ? `\n已经写了第 1–${written} 章：配置、前提与世界观照已写正文整理。` : '') +
       (missing.includes('config') && (!book.totalChapters || !book.wordsPerChapter)
         ? `\n小说配置里没写总章数或每章字数，按 ${setup.totalChapters} 章 × ${setup.wordsPerChapter} 字展开。`
+        : '') +
+      (missing.some((doc) => TRANSCRIBED_SETTINGS.includes(doc))
+        ? '\n配置、角色图谱、设定清单写完由转写模型照抄成 JSON（不跟这里挑的模型，算在上面的数里）。'
         : ''),
-    tasks: ['setting'],
+    tasks: missing.some((doc) => TRANSCRIBED_SETTINGS.includes(doc)) ? ['setting', 'transcribe'] : ['setting'],
     contextDetail: true,
   });
   if (answer?.action !== '开始补齐') {

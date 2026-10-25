@@ -8,6 +8,7 @@
  * | 一件失败就停 | 后面几件不跑；失败挂在那一行上（第 16 条） |
  * | 都齐了 | 一次都不调 |
  * | 已经写了正文 | 照正文整理；设定清单算填过，不排 |
+ * | 按格式写、转写成 JSON | 2026-10-25 起配置、角色图谱、设定清单写完由转写那一档照抄成 JSON：确认框单列转写那一行，转写只带合同与原文，次数算进返回的数 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -65,13 +66,13 @@ function loreDetails(user) {
 function which(user) {
   return user.includes('【冻结设定清单】')
     ? 'loreDetails'
-    : user.includes('【设定清单合同】')
+    : user.includes('【设定清单格式】')
       ? 'loreList'
-      : user.includes('【JSON 字段结构】')
+      : user.includes('【小说配置格式】')
         ? 'config'
         : user.includes('【冻结身份与关系清单】')
           ? 'details'
-          : user.includes('{"slots":[...]}')
+          : user.includes('【身份清单格式】')
             ? 'manifest'
             : user.includes('「故事前提」')
               ? 'premise'
@@ -80,8 +81,15 @@ function which(user) {
                 : '?';
 }
 
+/** 给了就先问它（按格式写、转写那一组用）；交回 undefined 再走下面按契约认的那一套。 */
+let override;
+
 function reply(messages) {
   const user = messages[messages.length - 1].content;
+  const own = override?.(messages);
+  if (own !== undefined) {
+    return own;
+  }
   const kind = which(user);
   if (fail.has(kind)) {
     return '';
@@ -166,12 +174,16 @@ describe('补齐架构', () => {
     calls = order();
   });
 
-  // 配置 1–3 次 + 前提 1 次 + 角色图谱 2–4 次（最多 16）+ 世界观 1 次 + 设定清单 3–6 次（最多 12）。
+  // 配置 2 次（最多 5）+ 前提 1 次 + 角色图谱 4–8 次（最多 31）+ 世界观 1 次 + 设定清单 6–12 次（最多 24）：
+  // 配置、角色图谱、设定清单每写一次都转写一次（2026-10-25 起）。
   test('确认框报出缺哪几件、预计与上限', () => {
     assert.ok(
-      confirm?.message.includes('要补齐小说配置、故事前提、角色图谱、世界观、设定清单，预计 8–13 次调用，最多 33 次'),
+      confirm?.message.includes('要补齐小说配置、故事前提、角色图谱、世界观、设定清单，预计 14–24 次调用，最多 62 次'),
       JSON.stringify(confirm)
     );
+    // 转写不跟这一次挑的模型：确认框单列一行。
+    assert.ok(confirm.detail.includes('由转写模型照抄成 JSON'), confirm.detail);
+    assert.ok(confirm.call.fixed?.some((line) => line.includes('转写')), JSON.stringify(confirm.call));
     assert.ok(confirm.detail.includes('按 100 章 × 3000 字展开'), confirm.detail);
     assert.ok(confirm.detail.includes('世界观 → 设定清单'), confirm.detail);
   });
@@ -285,7 +297,7 @@ describe('补齐架构 · 已经写了正文', () => {
     fake.reset();
     h.expect('开始补齐');
     n = await bundle.batch.completeSettings(w.project);
-    configCall = fake.calls.find((c) => c[c.length - 1].content.includes('【JSON 字段结构】'));
+    configCall = fake.calls.find((c) => c[c.length - 1].content.includes('【小说配置格式】'));
   });
 
   after(() => {
@@ -309,5 +321,62 @@ describe('补齐架构 · 已经写了正文', () => {
     assert.ok(!order().includes('loreList'), order().join(','));
     assert.ok(!h.confirms.some((c) => c.message.includes('设定清单')), JSON.stringify(h.confirms.map((c) => c.message)));
     assert.deepEqual(await w.project.listLore(), []);
+  });
+});
+
+describe('补齐架构 · 设定清单按格式写、转写成 JSON', () => {
+  const PROSE_LIST = ['## 分类', '- 渡口', '## 清单', '- 黑水渡（渡口）：北境唯一能过黑水的渡口'].join('\n');
+  const PROSE_DETAILS = ['## 黑水渡', '### 概要', '黑水河上的老渡口。', '### 规则与边界', '只在子时开船。', '### 现状', '无'].join('\n');
+  const LIST_JSON = JSON.stringify({ categories: ['渡口'], entries: [{ title: '黑水渡', category: '渡口', keywords: [], brief: '北境唯一能过黑水的渡口' }] });
+  const DETAILS_JSON = JSON.stringify({ entries: [{ title: '黑水渡', body: { 概要: '黑水河上的老渡口。', 规则与边界: '只在子时开船。', 现状: '无' } }] });
+  let w;
+  let n;
+  let transcribed;
+
+  before(async () => {
+    w = await makeTempProject(bundle.project, { prefix: 'settings-transcribe', title: '黑水' });
+    w.write('.novelforge/config.md', '---\ngenre: 仙侠\ntotalChapters: 30\nwordsPerChapter: 400\n---\n\n# 小说配置\n\n## 一句话\n\n渡口旧事\n\n## 核心梗概\n\n林昭在渡口查旧案。\n');
+    w.write('.novelforge/premise.md', '# 故事前提\n\n## 核心冲突链\n\n灭门 → 查案。\n');
+    w.write('.novelforge/world.md', '# 世界观\n\n## 规则与漏洞\n\n黑水不渡活人。\n');
+    w.write('.novelforge/characters/林昭.md', '---\nname: 林昭\ntags: [主角]\n---\n\n# 林昭\n\n## 身份\n\n孤儿。\n');
+    w.project.invalidate();
+    transcribed = [];
+    override = (messages) => {
+      const user = messages[messages.length - 1].content;
+      if (messages[0].content.includes('格式转写员')) {
+        transcribed.push(user);
+        return user.includes('【设定清单 JSON 合同】') ? LIST_JSON : DETAILS_JSON;
+      }
+      return user.includes('【设定清单格式】') ? PROSE_LIST : user.includes('【冻结设定清单】') ? PROSE_DETAILS : undefined;
+    };
+    fail = new Set();
+    fake.reset();
+    h.confirms.length = 0;
+    h.expect('开始补齐');
+    n = await bundle.batch.completeSettings(w.project);
+  });
+
+  after(() => {
+    override = undefined;
+    if (w) cleanup(w.dir);
+  });
+
+  test('确认框单列转写那一行，次数里算上转写', () => {
+    const c = h.confirms[0];
+    assert.ok(c.message.includes('要补齐设定清单，预计 6–12 次调用，最多 24 次'), c.message);
+    assert.ok(c.call.fixed?.some((line) => line.includes('转写')), JSON.stringify(c.call));
+  });
+
+  test('清单、详情各写 1 次、转写 1 次：返回 4 次', () => {
+    assert.equal(fake.callCount(), 4);
+    assert.equal(n, 4);
+    assert.equal(transcribed.length, 2);
+    assert.ok(transcribed[0].includes('【原文】') && transcribed[0].includes('- 黑水渡（渡口）') && !transcribed[0].includes('黑水不渡活人'), transcribed[0]);
+  });
+
+  test('照抄的落盘', async () => {
+    w.project.invalidate();
+    const e = (await w.project.listLore()).find((x) => x.title === '黑水渡');
+    assert.ok(e && e.category === '渡口' && e.body.includes('只在子时开船。'), JSON.stringify(e));
   });
 });

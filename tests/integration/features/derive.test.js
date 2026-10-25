@@ -58,7 +58,7 @@ function kindOf(messages) {
   if (sys.includes('负责维护一部长篇小说的人物档案')) return 'card';
   if (sys.includes('把定稿细纲里关于一个设定的记录整理成一条设定条目')) return 'lore';
   if (sys.includes('全文大纲')) return 'global';
-  if (user.includes('【JSON 字段结构】')) return 'config';
+  if (user.includes('【小说配置格式】')) return 'config';
   if (user.includes('整理出这一段的情节大纲')) return 'outline';
   if (user.includes('「故事前提」')) return 'premise';
   if (user.includes('「世界观」')) return 'world';

@@ -90,20 +90,19 @@ const LORE_LIST = JSON.stringify({
 /** 按契约里认得出的那一段应答。 */
 function reply(messages) {
   const user = messages[messages.length - 1].content;
-  if (user.includes('【设定清单合同】')) return LORE_LIST;
+  if (user.includes('【设定清单格式】')) return LORE_LIST;
   if (user.includes('【冻结设定清单】')) {
     const titles = /【本批必须完整生成的条目】\n([^\n]+)/.exec(user)[1].split('、');
     return JSON.stringify({ entries: titles.map((title) => ({ title, body: `## 概要\n${title}在青崖镇。\n\n## 规则与边界\n${title}的规矩。` })) });
   }
-  if (user.includes('【JSON 字段结构】')) return CONFIG_JSON;
+  if (user.includes('【小说配置格式】')) return CONFIG_JSON;
   if (user.includes('【冻结身份与关系清单】')) {
-    const ids = /【本批必须完整生成的 slotId】\n([^\n]+)/.exec(user)[1].split('、');
-    const names = { 1: '林昭', 2: '沈氏', 3: '李叔' };
+    const names = /【本批要写详情的人】\n([^\n]+)/.exec(user)[1].split('、');
     return JSON.stringify({
-      entries: ids.map((id) => ({ slotId: id, name: names[id], 身份: `${names[id]}的身份`, 性格: '冷', 当前状态: '在青崖镇' })),
+      entries: names.map((name) => ({ name, 身份: `${name}的身份`, 性格: '冷', 当前状态: '在青崖镇' })),
     });
   }
-  if (user.includes('{"slots":[...]}')) return MANIFEST;
+  if (user.includes('【身份清单格式】')) return MANIFEST;
   if (user.includes('「故事前提」')) return PREMISE;
   if (user.includes('「世界观」')) return WORLD;
   if (user.includes('整合为全书的情节大纲')) return OUTLINE;

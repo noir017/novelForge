@@ -146,9 +146,11 @@ describe('derive · 架构', () => {
     assert.ok(u.includes('# 已写正文（作者已经写成的权威事实'));
     assert.ok(u.includes('【从已写正文整理（重要）】作者已经写到第 8 章'));
     assert.ok(u.includes('基于上面「已写正文」'));
-    // 规模照给，JSON 合同不变；不说「我的脑洞」。
+    // 规模照给，格式不变（2026-10-25 起按小标题写）；不说「我的脑洞」。
     assert.ok(u.includes('- 计划总章数：100 章'));
-    assert.ok(u.includes('【不可变小说配置 JSON 合同】'));
+    assert.ok(u.includes('【小说配置格式】'));
+    // 没有作者的一句话：一句话卖点必须写。
+    assert.ok(u.includes('「一句话卖点」也必须写'), u.slice(-1500));
     assert.ok(!u.includes('# 我的脑洞'));
     assert.ok(!u.includes('契合市场'));
   });

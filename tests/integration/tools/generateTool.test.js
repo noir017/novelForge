@@ -387,12 +387,19 @@ describe('对架构文档调 generate', () => {
   });
 
   test('系统提示是策划的身份', () => {
-    assert.ok(lastSystem().includes('资深网文策划编辑'), lastSystem().slice(0, 60));
+    assert.ok(fake.calls[0][0].content.includes('资深网文策划编辑'), fake.calls[0][0].content.slice(0, 60));
   });
 
-  // 配置用上游的 JSON 合同（英文键，解码时对到 config.md 的七节）。
-  test('输出契约是小说配置的 JSON 合同', () => {
-    assert.ok(lastUser().includes('"coreOutline"') && lastUser().includes('"globalGuidance"'), lastUser().slice(-600));
+  // 2026-10-25 起配置按小标题写（八节与 config.md 同名），JSON 合同（上游的英文键）挪给转写那一步。
+  test('输出契约是小说配置的格式；转写那一次带 JSON 合同', () => {
+    const first = fake.calls[0][fake.calls[0].length - 1].content;
+    assert.ok(first.includes('【小说配置格式】') && first.includes('## 核心梗概') && !first.includes('"coreOutline"'), first.slice(-600));
+    assert.ok(lastSystem().includes('格式转写员') && lastUser().includes('"coreOutline"'), lastUser().slice(0, 600));
+  });
+
+  // 假模型转写时照样回那段 Markdown：两次都转不成，按小节读原文（同从前模型没按 JSON 答时）。
+  test('转写不成：写 1 次、转写 2 次，按小节读了原文', () => {
+    assert.equal(fake.calls.length, 3);
   });
 
   test('返回文本里有形状描述', () => {

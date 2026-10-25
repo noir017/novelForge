@@ -74,9 +74,10 @@ describe('单条设定目标 · 说法与调用次数', () => {
     assert.deepEqual(pipeline.commandsFor('plot', { kind: 'plot', plotRelPath: 'x' }).map((c) => c.label), ['落定细纲', '写细纲', '续写大纲', '落定设定']);
   });
 
-  test('展开预计 1 次，最多 2 次（语法坏了修一次）', () => {
+  // 2026-10-25 起写完转写一次，不合格重转一次。
+  test('展开预计 2 次，最多 3 次（写 1 次、转写 1 次，重转 1 次）', () => {
     const c = pipeline.LORE_EXPAND_CALLS;
-    assert.deepEqual([c.low, c.high, c.max], [1, 1, 2]);
-    assert.ok(pipeline.describeCalls(c).startsWith('预计 1 次调用，最多 2 次'), pipeline.describeCalls(c));
+    assert.deepEqual([c.low, c.high, c.max], [2, 2, 3]);
+    assert.ok(pipeline.describeCalls(c).startsWith('预计 2 次调用，最多 3 次（写 1 次、转写模型照抄成 JSON 1 次'), pipeline.describeCalls(c));
   });
 });

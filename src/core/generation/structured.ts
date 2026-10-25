@@ -5,10 +5,10 @@
  *
  * | 产物 | 链 | 上游出处 |
  * |---|---|---|
- * | 小说配置 | 截断就整份重来 1 次；「全局要求」不合格只重写这一节 1 次 | `GenerateConfigCommand`（AC:980-1163） |
- * | 角色图谱 | 身份清单 → 按冻结清单每批 3 人补详情；截断拆半 | `GenerateCharactersCommand`（AC:1254-1647） |
- * | 设定清单 | 分类目录树 + 清单 → 按冻结清单每批 6 条补正文；截断拆半；调用次数封顶 | 本项目（设定名录） |
- * | 展开一条设定 | 1 次；语法坏了修一次；截断、解析不了都不给写入 | 本项目（完善设定） |
+ * | 小说配置 | 写 → 转写；截断就整份重来 1 次；「全局要求」不合格只重写这一节 1 次；转写不成按小节读 | `GenerateConfigCommand`（AC:980-1163） |
+ * | 角色图谱 | 身份清单（写 → 转写）→ 按冻结清单每批 3 人补详情（写 → 转写）；截断拆半 | `GenerateCharactersCommand`（AC:1254-1647） |
+ * | 设定清单 | 分类目录树 + 清单 → 按冻结清单每批 6 条补正文，都是写 → 转写；截断拆半；调用次数封顶 | 本项目（设定名录） |
+ * | 展开一条设定 / 落定设定 | 写 → 转写（重转一次）；截断、转写不成都不给写入 | 本项目（完善设定） |
  * | 细纲批次 | 写（自然语言）→ 转写成 JSON；截断或转写不出来：多章对半拆、单章紧凑重建；全程重转一次；漏章 fail-closed | `structured-batch-executor.ts` |
  * | 单章细纲 | 写（自然语言）→ 转写成 JSON；重转一次；还不行按小节读原文 | 本项目（细纲试点） |
  *
@@ -38,10 +38,12 @@ import {
   RESTART_AFTER_INVALID,
   RESTART_AFTER_TRUNCATION,
   blueprintTranscribeMessages,
+  configJsonContract,
   guidanceRetryMessages,
   loreDetailJsonContract,
+  loreListJsonContract,
   rosterDetailJsonContract,
-  syntaxRepairMessages,
+  rosterManifestJsonContract,
 } from '../context/prompts';
 import { loreExpandJsonContract } from '../context/loreExpandPrompt';
 import { loreSettleJsonContract } from '../context/loreSettlePrompt';
@@ -51,32 +53,38 @@ import { hasContent } from '../model/markdown';
 import { outlineRangeHeadings, parseOutline } from '../model/outlineFile';
 import { BlueprintItem, blueprintToPlot, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
 import { parsePlotStrict } from '../features/artifact';
-import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
+import {
+  CharacterDetail,
+  DetailsDecode,
+  IdentitySlot,
+  ManifestDecode,
+  assembleRoster,
+  decodeDetails,
+  decodeManifest,
+  renderRoster,
+} from '../features/roster';
 import {
   LoreDetail,
+  LoreDetailsDecode,
   LoreListKnown,
   LoreListSlot,
+  LoreManifestDecode,
   assembleLoreList,
   decodeLoreDetails,
   decodeLoreManifest,
   renderLoreList,
 } from '../features/loreList';
 import {
+  ConfigDecode,
   decodeNovelConfig,
   guidanceProblem,
   isGuidanceValid,
   mergeWithAuthor,
   renderConfigDraft,
 } from '../features/novelConfig';
-import { LoreExpandKnown, decodeLoreExpansion, renderLoreExpansion } from '../features/loreExpand';
-import { LoreSettleKnown, decodeLoreSettle, renderLoreSettle, renderNothingSettled } from '../features/loreSettle';
-import {
-  isRepairableJsonSyntax,
-  jsonValueOf,
-  preservesJsonEvidence,
-  unfaithfulStrings,
-  withoutNone,
-} from '../features/structuredJson';
+import { LoreExpandDecode, LoreExpandKnown, decodeLoreExpansion, renderLoreExpansion } from '../features/loreExpand';
+import { LoreSettleDecode, LoreSettleKnown, decodeLoreSettle, renderLoreSettle, renderNothingSettled } from '../features/loreSettle';
+import { jsonValueOf, unfaithfulStrings, withoutNone } from '../features/structuredJson';
 import { cnNumber } from '../model/timelineFile';
 import { TRANSCRIBE_TEMPERATURE } from '../model/transcribe';
 import { TranscribeCall, TranscribeResult, TranscribeSpec, transcribeJson } from '../features/transcribe';
@@ -189,6 +197,88 @@ function span(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
 }
 
+// ---------------------------------------------------------------- 转写（架构那几件、展开、落定设定）
+
+/** 一步的解码结果（成功那一支）。 */
+type Decoded<D> = Extract<D, { ok: true }>;
+
+/**
+ * 把这一步原来的解码包成转写要的样子（features/transcribe.ts 的 `TranscribeSpec.decode`）：成功交回整份解码结果（带
+ * warnings、missing），失败交回那一句人话。
+ */
+function decoder<D extends { ok: boolean }>(
+  decode: (json: string) => D,
+  reason: (d: Exclude<D, { ok: true }>) => string
+): (json: string) => { ok: true; value: Decoded<D> } | { ok: false; message: string } {
+  return (json) => {
+    const d = decode(json);
+    return d.ok ? { ok: true, value: d as Decoded<D> } : { ok: false, message: reason(d as Exclude<D, { ok: true }>) };
+  };
+}
+
+/** 设定的正文三节：展开、落定、设定清单的详情都认它。 */
+const LORE_BODY_LOOK = /概要|规则与边界|现状/;
+
+/**
+ * 小说配置（2026-10-25 起改成转写）：故事结构、叙事视角是中文词对到英文枚举，规模是数字，不比原文。原文连「核心梗概」
+ * 「金手指」这类小标题都没有就不转（多半是一段闲话）。
+ */
+function configSpec(): TranscribeSpec<Decoded<ConfigDecode>> {
+  return {
+    label: '小说配置',
+    contract: configJsonContract(),
+    decode: decoder(decodeNovelConfig, (d) => d.reason),
+    mapped: ['plotStructure', 'narrativePOV', 'totalChapters', 'wordsPerChapter'],
+    looksLike: (source) => /核心梗概|金手指|主角档案|全局要求/.test(source),
+  };
+}
+
+/** 定位的中文词 → 身份清单的英文值（`decodeManifest` 只认英文值，认不出按配角算——主角被降成配角比多一次转写糟）。 */
+const ROLE_CODE: Record<string, string> = { 主角: 'protagonist', 反派: 'antagonist', 配角: 'supporting', 次要: 'minor' };
+
+/** 转写模型偶尔把定位照抄成中文：对回英文值再交给解码。其余一个字不动。 */
+function withRoleCodes(json: string): string {
+  const value = jsonValueOf(json) as { slots?: unknown } | undefined;
+  if (!value || typeof value !== 'object' || !Array.isArray(value.slots)) {
+    return json;
+  }
+  const slots = value.slots.map((row: unknown) => {
+    const o = row && typeof row === 'object' ? (row as Record<string, unknown>) : undefined;
+    const code = typeof o?.role === 'string' ? ROLE_CODE[o.role.trim()] : undefined;
+    return code ? { ...o, role: code } : row;
+  });
+  return JSON.stringify({ ...value, slots });
+}
+
+/** 身份清单：编号（slotId）就是名字，关系指向对方的名字（context/prompts.ts 的 `rosterManifestJsonContract`），按对应关系填。 */
+function manifestSpec(): TranscribeSpec<Decoded<ManifestDecode>> {
+  return {
+    label: '身份清单',
+    contract: rosterManifestJsonContract(),
+    decode: decoder((json: string) => decodeManifest(withRoleCodes(json)), (d) => d.message),
+    mapped: ['slotId', 'targetSlotId', 'role', 'gender'],
+    looksLike: (source) => /定位|叙事职责/.test(source),
+  };
+}
+
+/** 冻结的身份清单给补详情那一步看的样子：一人一行（名字、定位、性别、叙事职责），关系缩进在下面。 */
+function frozenRoster(slots: readonly IdentitySlot[]): string {
+  return slots
+    .flatMap((s) => [
+      `- ${s.name}（${[s.role, s.gender].filter(Boolean).join('，')}）${s.duty ? `：${s.duty}` : ''}`,
+      ...s.relations.map((r) => `  - 与${r.target}：${r.relation}`),
+    ])
+    .join('\n');
+}
+
+/** 冻结的设定清单给补正文那一步看的样子：先一行分类，再一条一行（名字、分类、一句话）。 */
+function frozenLoreList(categories: readonly string[], slots: readonly LoreListSlot[]): string {
+  return [
+    ...(categories.length > 0 ? [`分类：${categories.join('、')}`] : []),
+    ...slots.map((s) => `- ${s.title}（${s.category || '未分类'}）${s.brief ? `：${s.brief}` : ''}`),
+  ].join('\n');
+}
+
 // ---------------------------------------------------------------- 小说配置
 
 export interface ConfigChainContext {
@@ -215,29 +305,31 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
 };
 
 /**
- * 小说配置：截断整份重来 1 次 → 解码 → 「全局要求」不合格只重写这一节 1 次 →
- * 与磁盘那份合并 → `config.md` 全文（外加一节文风）。
+ * 小说配置：写（按小标题，2026-10-25 起）→ 截断整份重来 1 次 → 转写成 JSON（重转一次）→ 「全局要求」不合格只重写这一节
+ * 1 次 → 与磁盘那份合并 → `config.md` 全文（外加一节文风）。
  *
- * 模型根本没按 JSON 答（一段 Markdown）时不报错，原样交回去：解析那一层会按小节读，
- * 卡片上照样看得见——这件产物作者当场过目，宽松比作废划算。
+ * 转写不成（转写调用失败、两次都不合格、原文连小标题都没有）不报错，原样交回去：解析那一层按小节读（「核心梗概」
+ * 「金手指」……那八节与 `config.md` 同名），卡片上照样看得见——这件产物作者当场过目，宽松比作废划算（同从前模型没按
+ * JSON 答时）。模型自己给了 JSON 就不转。
  */
 export async function completeConfig(first: CallOutcome, io: ChainIO, ctx: ConfigChainContext): Promise<ChainResult> {
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
   const t: Tally = new Tally(true);
   let out = first;
   if (out.stop === 'maxTokens') {
-    t.note('配置 JSON 被输出上限截断，截断的那一半不可信，已丢弃并整份重来一次');
+    t.note('小说配置被输出上限截断，截断的那一半不可信，已丢弃并整份重来一次');
     out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_TRUNCATION }), '配置被截断，整份重来');
     if (out.stop === 'maxTokens') {
       t.fail('小说配置重来一次仍被输出上限截断。调大设置页的「最大输出 token」，或降低思考深度再试。');
     }
   }
 
-  const decoded = decodeNovelConfig(out.text);
-  if (!decoded.ok) {
-    t.note(`模型没有按 JSON 合同作答（${decoded.reason}），按 Markdown 小节读`);
+  const tr = await t.transcribeJson(io, out.text, configSpec());
+  if (!tr.ok) {
+    t.note(`小说配置没能整理成 JSON（${tr.message}），按小节读了原文：类型、受众、故事结构、叙事视角与文风读不出来，写入后可以手补`);
     return { raw: out.text, notes: t.notes, calls: t.calls };
   }
+  const decoded = tr.value;
   const value = decoded.value;
   if (decoded.missing.length > 0) {
     t.note(`模型漏了：${decoded.missing.map((k) => CONFIG_FIELD_LABEL[k] ?? k).join('、')}`);
@@ -285,10 +377,12 @@ export async function completeConfig(first: CallOutcome, io: ChainIO, ctx: Confi
 // ---------------------------------------------------------------- 角色图谱
 
 /**
- * 角色图谱：身份清单（截断重来 1 次）→ 按冻结清单每批 3 人补详情 → 拼卡。
+ * 角色图谱：身份清单（截断重来 1 次）→ 按冻结清单每批 3 人补详情 → 拼卡。2026-10-25 起每一次都是按小标题写、
+ * 转写模型照抄成 JSON（features/transcribe.ts）。
  *
- * 清单不合格就停：后面每一批都以它为准，一张坏清单补出来的详情只会错得更整齐。
- * 详情那一步反过来宽松——某人的详情实在出不来，照样按清单建卡并说明。
+ * 清单不合格（转写不成也算）就停：后面每一批都以它为准，一张坏清单补出来的详情只会错得更整齐。
+ * 详情那一步反过来宽松——某人的详情实在出不来，照样按清单建卡并说明：截断或转写不合格对半拆，单人还不行、
+ * 或转写调用本身失败，只按清单建卡。详情的转写**全程只重转一次**（同从前的语法修复只修一次）。
  */
 export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<ChainResult> {
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
@@ -297,26 +391,25 @@ export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<C
   if (out.stop === 'maxTokens') {
     t.note('身份清单被输出上限截断，已丢弃并重来一次');
     out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_TRUNCATION }), '身份清单被截断，重来');
+    if (out.stop === 'maxTokens') {
+      t.fail('角色身份清单重来一次仍被输出上限截断。调大设置页的「最大输出 token」，或降低思考深度再试。');
+    }
   }
-  const manifest = decodeManifest(out.text);
+  const manifest = await t.transcribeJson(io, out.text, manifestSpec());
   if (!manifest.ok) {
     t.fail(`角色身份清单不合格：${manifest.message}。这一次没有产出可写入的角色图谱。`);
   }
-  t.note(...manifest.warnings);
-  const slots = manifest.slots;
-  const frozen = JSON.stringify({
-    slots: slots.map((s) => ({ slotId: s.slotId, name: s.name, role: s.role, gender: s.gender, narrativeDuty: s.duty, relations: s.relations })),
-  });
+  t.note(...manifest.value.warnings);
+  const slots = manifest.value.slots;
+  const frozen = frozenRoster(slots);
 
   const details: CharacterDetail[] = [];
-  let repairUsed = false;
+  let retranscribed = false;
   const runBatch = async (batch: IdentitySlot[]): Promise<void> => {
     const names = batch.map((s) => s.name).join('、');
-    const done = details.length
-      ? JSON.stringify(details.map((d) => ({ slotId: d.slotId, name: slots.find((s) => s.slotId === d.slotId)?.name })))
-      : '';
+    const done = details.map((d) => slots.find((s) => s.slotId === d.slotId)?.name ?? '').filter(Boolean).join('、');
     const messages = await io.build({
-      step: { kind: 'rosterDetails', manifest: frozen, slotIds: batch.map((s) => s.slotId), done },
+      step: { kind: 'rosterDetails', manifest: frozen, names: batch.map((s) => s.name), done },
     });
     const res = await t.call(io, messages, `角色详情（${names}）`);
     const split = async (why: string) => {
@@ -332,27 +425,25 @@ export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<C
       t.note(`「${names}」的详情被输出上限截断，只按身份清单建卡`);
       return;
     }
-    let text = res.text;
-    if (isRepairableJsonSyntax(text) && !repairUsed) {
-      repairUsed = true;
-      const fix = await t.call(io, syntaxRepairMessages(rosterDetailJsonContract(), text), '角色详情的 JSON 语法坏了，修一次');
-      if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
-        text = fix.text;
-        t.note('角色详情的 JSON 语法坏了，修了一次（只改标点）');
-      } else {
-        t.note('角色详情的语法修复改动了内容或没修好，没有采用');
+    const tr = await t.transcribeJson(io, res.text, {
+      label: `${names}的详情`,
+      contract: rosterDetailJsonContract(),
+      decode: decoder((json: string): DetailsDecode => decodeDetails(json, batch), (d) => d.message),
+      mapped: ['slotId', 'role'],
+      looksLike: (source) => /身份|外貌|性格|当前状态/.test(source),
+      retries: retranscribed ? 0 : 1,
+    });
+    retranscribed ||= tr.calls > 1;
+    if (!tr.ok) {
+      // 转写调用本身失败（转写那一档没人可用）：拆半再写也一样转不了。
+      if (batch.length > 1 && !tr.failed) {
+        return split(`解不出来（${tr.message}）`);
       }
-    }
-    const decoded = decodeDetails(text, batch);
-    if (!decoded.ok) {
-      if (batch.length > 1) {
-        return split(`解不出来（${decoded.message}）`);
-      }
-      t.note(`「${names}」的详情解不出来（${decoded.message}），只按身份清单建卡`);
+      t.note(`「${names}」的详情解不出来（${tr.message}），只按身份清单建卡`);
       return;
     }
-    t.note(...decoded.warnings);
-    details.push(...decoded.items);
+    t.note(...tr.value.warnings);
+    details.push(...tr.value.items);
   };
 
   for (let i = 0; i < slots.length; i += ROSTER_DETAIL_BATCH) {
@@ -366,14 +457,15 @@ export async function completeRoster(first: CallOutcome, io: ChainIO): Promise<C
 // ---------------------------------------------------------------- 设定清单
 
 /**
- * 设定清单（设定名录）：清单（截断或解不出来重来 1 次）→ 按冻结清单每批 6 条补正文 → 拼条目。路子同
- * {@link completeRoster}：
+ * 设定清单（设定名录）：清单（截断或整理不出来重来 1 次）→ 按冻结清单每批 6 条补正文 → 拼条目。2026-10-25 起每一次
+ * 都是按小标题写、转写模型照抄成 JSON。路子同 {@link completeRoster}：
  *
- * - 清单不合格就停：分类与名字只在清单里定一次，后面每一批都以它为准。
- * - 详情截断或解不出来对半拆；单条还是不行就只按清单建（一句话），并说明。JSON 语法坏了全程只修一次，
- *   只许改标点（`preservesJsonEvidence`）。
- * - **调用次数封顶 {@link LORE_LIST_CALLS_MAX}**（主按钮报的上限，第 4 条）：到了就不再拆半，剩下的
- *   条目只按清单建。三十条逐批拆到底是几十次调用，报给作者的数不能是摆设。
+ * - 清单不合格就停：分类与名字只在清单里定一次，后面每一批都以它为准。转写调用本身失败不重写（写得没毛病）。
+ * - 详情截断或转写不合格对半拆；单条还是不行、或转写调用失败，就只按清单建（一句话），并说明。详情的转写全程只重转
+ *   一次（同从前的语法修复只修一次）。
+ * - **调用次数封顶 {@link LORE_LIST_CALLS_MAX}**（主按钮报的上限，第 4 条），转写的调用也算：一批写一次、转写一次，
+ *   剩的余量不够这两次就不再写，剩下的条目只按清单建；余量不够就不重转。三十条逐批拆到底是几十次调用，报给作者的数
+ *   不能是摆设。
  */
 export async function completeLoreList(first: CallOutcome, io: ChainIO, known: LoreListKnown): Promise<ChainResult> {
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
@@ -385,24 +477,37 @@ export async function completeLoreList(first: CallOutcome, io: ChainIO, known: L
     out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_TRUNCATION }), '设定清单被截断，重来');
     retried = true;
   }
-  let manifest = decodeLoreManifest(out.text, known);
-  if (!manifest.ok && !retried && out.stop !== 'maxTokens') {
+  const spec: TranscribeSpec<Decoded<LoreManifestDecode>> = {
+    label: '设定清单',
+    contract: loreListJsonContract(),
+    decode: decoder((json: string) => decodeLoreManifest(json, known), (d) => d.message),
+    looksLike: (source) => /分类|清单/.test(source),
+  };
+  const truncated = (o: CallOutcome) =>
+    o.stop === 'maxTokens'
+      ? t.fail('设定清单重来一次仍被输出上限截断。调大设置页的「最大输出 token」，或降低思考深度再试。')
+      : undefined;
+  truncated(out);
+  let manifest = await t.transcribeJson(io, out.text, spec);
+  if (!manifest.ok && !manifest.failed && !retried) {
     t.note(`设定清单不合格（${manifest.message}），重来一次`);
     out = await t.call(io, await io.build({ extraInstruction: RESTART_AFTER_INVALID }), '设定清单不合格，重来');
-    manifest = decodeLoreManifest(out.text, known);
+    truncated(out);
+    manifest = await t.transcribeJson(io, out.text, spec);
   }
   if (!manifest.ok) {
     t.fail(`设定清单不合格：${manifest.message}。这一次没有产出可写入的设定清单。`);
   }
-  t.note(...manifest.warnings);
-  const { categories, slots } = manifest;
-  const frozen = JSON.stringify({ categories, entries: slots.map((s) => ({ title: s.title, category: s.category, brief: s.brief })) });
+  t.note(...manifest.value.warnings);
+  const { categories, slots } = manifest.value;
+  const frozen = frozenLoreList(categories, slots);
 
   const details: LoreDetail[] = [];
-  let repairUsed = false;
+  let retranscribed = false;
   const runBatch = async (batch: LoreListSlot[]): Promise<void> => {
     const names = batch.map((s) => s.title).join('、');
-    if (t.calls >= LORE_LIST_CALLS_MAX) {
+    // 写一次、转写一次：余量不够这两次就不写了（写了转不了也是白写）。
+    if (t.calls + 2 > LORE_LIST_CALLS_MAX) {
       t.note(`已经调了 ${t.calls} 次模型（上限 ${LORE_LIST_CALLS_MAX}），「${names}」只按清单建条目`);
       return;
     }
@@ -426,27 +531,24 @@ export async function completeLoreList(first: CallOutcome, io: ChainIO, known: L
       t.note(`「${names}」的正文被输出上限截断，只按清单建条目`);
       return;
     }
-    let text = res.text;
-    if (isRepairableJsonSyntax(text) && !repairUsed && t.calls < LORE_LIST_CALLS_MAX) {
-      repairUsed = true;
-      const fix = await t.call(io, syntaxRepairMessages(loreDetailJsonContract(), text), '设定详情的 JSON 语法坏了，修一次');
-      if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
-        text = fix.text;
-        t.note('设定详情的 JSON 语法坏了，修了一次（只改标点）');
-      } else {
-        t.note('设定详情的语法修复改动了内容或没修好，没有采用');
+    const tr = await t.transcribeJson(io, res.text, {
+      label: `${names}的正文`,
+      contract: loreDetailJsonContract(),
+      decode: decoder((json: string): LoreDetailsDecode => decodeLoreDetails(json, batch), (d) => d.message),
+      looksLike: (source) => LORE_BODY_LOOK.test(source),
+      // 重转那一次也要在上限以内（这一次写完之后还剩几次）。
+      retries: !retranscribed && t.calls + 2 <= LORE_LIST_CALLS_MAX ? 1 : 0,
+    });
+    retranscribed ||= tr.calls > 1;
+    if (!tr.ok) {
+      if (batch.length > 1 && !tr.failed) {
+        return split(`解不出来（${tr.message}）`);
       }
-    }
-    const decoded = decodeLoreDetails(text, batch);
-    if (!decoded.ok) {
-      if (batch.length > 1) {
-        return split(`解不出来（${decoded.message}）`);
-      }
-      t.note(`「${names}」的正文解不出来（${decoded.message}），只按清单建条目`);
+      t.note(`「${names}」的正文解不出来（${tr.message}），只按清单建条目`);
       return;
     }
-    t.note(...decoded.warnings);
-    details.push(...decoded.items);
+    t.note(...tr.value.warnings);
+    details.push(...tr.value.items);
   };
 
   for (let i = 0; i < slots.length; i += LORE_LIST_DETAIL_BATCH) {
@@ -460,52 +562,48 @@ export async function completeLoreList(first: CallOutcome, io: ChainIO, known: L
 // ---------------------------------------------------------------- 展开一条设定
 
 /**
- * 展开一条设定（完善设定，2026-10-19）：1 次；JSON 语法坏了（标点错、内容是全的）修一次，只许改标点
- * （`preservesJsonEvidence`）——上限 2 次，与报给作者的 `LORE_EXPAND_CALLS` 同一个数（第 4 条）。
+ * 展开一条设定（完善设定，2026-10-19）：写 1 次（2026-10-25 起按小标题写），转写模型照抄成 JSON 1 次，不合格重转
+ * 1 次——上限 3 次，与报给作者的 `LORE_EXPAND_CALLS` 同一个数（第 4 条）。模型自己给了 JSON 就不转。
  *
- * **截断与解析不了都不给写入**：截断的那一半不可信，没解析开的原文盖掉条目比没写更糟（同定稿）——链停下，
+ * **截断与转写不成都不给写入**：截断的那一半不可信，没整理开的原文盖掉条目比没写更糟（同定稿）——链停下，
  * 已经收到的输出留在气泡里，没有落盘卡片。解出来的照程序的规矩过一遍（features/loreExpand.ts：截长、关键词与
  * 子条目对照磁盘上的条目与角色卡），交给气泡的是规范化结果，丢掉了什么写进说明（第 2 条）。
  *
- * `opts.repair: false`：不修（批量展开第二次重来时，上限已经用掉一次——features/lore.ts 的 `expandLoreEntries`，
- * `LORE_EXPAND_BATCH_CALLS`）。
+ * `opts.retranscribe: false`：转写不合格不重转（批量展开第二次重来时，上限只剩那么多——features/lore.ts 的
+ * `expandLoreEntries`，`LORE_EXPAND_BATCH_CALLS`）。
  */
 export async function completeLoreExpand(
   first: CallOutcome,
   io: ChainIO,
   known: LoreExpandKnown,
-  opts: { repair?: boolean } = {}
+  opts: { retranscribe?: boolean } = {}
 ): Promise<ChainResult> {
   // 显式标注类型：`t.fail()` 返回 never，TS 只对显式标注的变量做控制流收窄。
   const t: Tally = new Tally(true);
   if (first.stop === 'maxTokens') {
     t.fail('展开被输出上限截断，截断的那一半不可信，这一次没有产出可写入的设定。调大设置页的「最大输出 token」，或降低思考深度再试。');
   }
-  let text = first.text;
-  let decoded = decodeLoreExpansion(text, known);
-  if (!decoded.ok && opts.repair !== false && isRepairableJsonSyntax(text)) {
-    const fix = await t.call(io, syntaxRepairMessages(loreExpandJsonContract(), text), '展开的 JSON 语法坏了，修一次');
-    if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
-      text = fix.text;
-      decoded = decodeLoreExpansion(text, known);
-      t.note('展开的 JSON 语法坏了，修了一次（只改标点）');
-    } else {
-      t.note('展开的语法修复改动了内容或没修好，没有采用');
-    }
+  const tr = await t.transcribeJson(io, first.text, {
+    label: '设定展开',
+    contract: loreExpandJsonContract(),
+    decode: decoder((json: string): LoreExpandDecode => decodeLoreExpansion(json, known), (d) => d.message),
+    looksLike: (source) => LORE_BODY_LOOK.test(source),
+    retries: opts.retranscribe === false ? 0 : 1,
+  });
+  if (!tr.ok) {
+    t.fail(`展开解析不出来（${tr.message}），这一次没有产出可写入的设定。`);
   }
-  if (!decoded.ok) {
-    t.fail(`展开解析不出来（${decoded.message}），这一次没有产出可写入的设定。`);
-  }
-  t.note(...decoded.warnings);
-  return { raw: renderLoreExpansion(decoded.value), notes: t.notes, calls: t.calls };
+  t.note(...tr.value.warnings);
+  return { raw: renderLoreExpansion(tr.value.value), notes: t.notes, calls: t.calls };
 }
 
 // ---------------------------------------------------------------- 落定设定
 
 /**
- * 落定设定（完善设定二期）：1 次；JSON 语法坏了修一次，只许改标点——上限 2 次，与报给作者的 `LORE_SETTLE_CALLS`
- * 同一个数（第 4 条）。截断与解析不了都不给写入（同展开）。解出来的照程序的规矩过一遍（features/loreSettle.ts：
- * 截长、人名、重名、按磁盘认出改的是哪一条已有条目），交给气泡的是规范化结果，丢掉了什么写进说明（第 2 条）。
+ * 落定设定（完善设定二期）：写 1 次（2026-10-25 起按小标题写），转写 1 次、不合格重转 1 次——上限 3 次，与报给作者的
+ * `LORE_SETTLE_CALLS` 同一个数（第 4 条）。截断与转写不成都不给写入（同展开）。解出来的照程序的规矩过一遍
+ * （features/loreSettle.ts：截长、人名、重名、按磁盘认出改的是哪一条已有条目），交给气泡的是规范化结果，丢掉了什么
+ * 写进说明（第 2 条）。
  *
  * 讨论里一条都没定下来（`entries` 是空的）不算失败：气泡里换成一段人话，说清没写什么、列出还没定的——没有落盘卡片，
  * 作者接着聊。
@@ -516,26 +614,21 @@ export async function completeLoreSettle(first: CallOutcome, io: ChainIO, known:
   if (first.stop === 'maxTokens') {
     t.fail('落定设定被输出上限截断，截断的那一半不可信，这一次没有产出可写入的设定。调大设置页的「最大输出 token」，或降低思考深度再试。');
   }
-  let text = first.text;
-  let decoded = decodeLoreSettle(text, known);
-  if (!decoded.ok && isRepairableJsonSyntax(text)) {
-    const fix = await t.call(io, syntaxRepairMessages(loreSettleJsonContract(), text), '落定设定的 JSON 语法坏了，修一次');
-    if (fix.stop !== 'maxTokens' && preservesJsonEvidence(text, fix.text)) {
-      text = fix.text;
-      decoded = decodeLoreSettle(text, known);
-      t.note('落定设定的 JSON 语法坏了，修了一次（只改标点）');
-    } else {
-      t.note('落定设定的语法修复改动了内容或没修好，没有采用');
-    }
+  const tr = await t.transcribeJson(io, first.text, {
+    label: '落定设定',
+    contract: loreSettleJsonContract(),
+    decode: decoder((json: string): LoreSettleDecode => decodeLoreSettle(json, known), (d) => d.message),
+    looksLike: (source) => LORE_BODY_LOOK.test(source) || /还没定的问题/.test(source),
+  });
+  if (!tr.ok) {
+    t.fail(`落定设定解析不出来（${tr.message}），这一次没有产出可写入的设定。`);
   }
-  if (!decoded.ok) {
-    t.fail(`落定设定解析不出来（${decoded.message}），这一次没有产出可写入的设定。`);
+  const { value, warnings } = tr.value;
+  t.note(...warnings);
+  if (value.entries.length === 0) {
+    return { raw: renderNothingSettled(value.questions), notes: t.notes, calls: t.calls };
   }
-  t.note(...decoded.warnings);
-  if (decoded.value.entries.length === 0) {
-    return { raw: renderNothingSettled(decoded.value.questions), notes: t.notes, calls: t.calls };
-  }
-  return { raw: renderLoreSettle(decoded.value), notes: t.notes, calls: t.calls };
+  return { raw: renderLoreSettle(value), notes: t.notes, calls: t.calls };
 }
 
 // ---------------------------------------------------------------- 细纲批次

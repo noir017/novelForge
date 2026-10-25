@@ -277,8 +277,10 @@ describe('角色图谱 · 两段式', () => {
 
   test('清单 1 次 + 详情（截断拆半）4 次', () => {
     assert.equal(fake.callCount(), 5);
-    // 详情那一步带着冻结清单。
-    assert.ok(userOf(1).includes('【冻结身份与关系清单】') && userOf(1).includes('"name":"周岳"'), userOf(1).slice(-1200));
+    // 详情那一步带着冻结清单（2026-10-25 起一人一行，不再是 JSON），点名这一批写谁。
+    assert.ok(userOf(1).includes('【冻结身份与关系清单】') && userOf(1).includes('- 周岳（反派）：执法堂首座'), userOf(1).slice(-1200));
+    assert.ok(userOf(1).includes('【本批要写详情的人】\n林昭、沈青、周岳'), userOf(1).slice(-1200));
+    assert.ok(userOf(1).includes('  - 与沈青：同门，互相试探'), userOf(1).slice(-1200));
   });
 
   test('卡片上说出拆半重试', () => {
@@ -297,7 +299,7 @@ describe('角色图谱 · 两段式', () => {
 
   // 名字看不出性别时写正文只能猜：性别在清单那一步定，跟着冻结清单进详情、落在卡的 frontmatter 上。
   test('性别：清单里定，详情那一步看得见，落盘成 frontmatter；没给的不写', () => {
-    assert.ok(userOf(1).includes('"name":"沈青","role":"配角","gender":"女"'), userOf(1).slice(-1200));
+    assert.ok(userOf(1).includes('- 沈青（配角，女）：引路人'), userOf(1).slice(-1200));
     assert.equal(cards.find((c) => c.name === '林昭').gender, '男');
     const shen = cards.find((c) => c.name === '沈青');
     assert.equal(shen.gender, '女');
@@ -506,5 +508,209 @@ describe('大纲续写 · 只并进那一段', () => {
     assert.ok(outline.includes('林昭进青云宗，查出第一块令牌的来历。') && outline.includes('名册浮出水面。'), outline);
     assert.ok(outline.indexOf('## 第20章') < outline.indexOf('## 第21章：风起'));
     assert.equal((outline.match(/^## 第\d+章/gm) ?? []).length, 30, '第 1–30 章各一条');
+  });
+});
+
+// ---------------------------------------------------------------- 按格式写、转写成 JSON（2026-10-25 起）
+
+const TRANSCRIBER = '格式转写员';
+const systemOf = (i) => fake.calls[i][0].content;
+
+/** 写配置的模型按小标题写出来的一份。 */
+const CONFIG_PROSE = [
+  '## 类型',
+  '仙侠',
+  '## 受众',
+  '男频',
+  '## 细分类型',
+  '宗门 · 复仇',
+  '## 故事结构',
+  '英雄之旅',
+  '## 叙事视角',
+  '第三人称有限视角',
+  '## 一句话卖点',
+  '无',
+  '## 核心梗概',
+  '孤儿入宗复仇，一路查到宗主头上。',
+  '## 核心卖点',
+  '- 残令回放死者最后一刻',
+  '- 执法堂步步紧逼',
+  '## 世界观要点',
+  '灵脉枯竭，宗门垄断灵石。',
+  '## 金手指',
+  '残令：每回放一次折寿一月。',
+  '## 主角档案',
+  '沈默寡言，记仇。',
+  '## 全局要求',
+  '1. 不写上帝视角',
+  '2. 每章留钩子',
+  '3. 残令每次使用都有代价',
+  '4. 对白分得出是谁在说',
+  '## 文风',
+  '冷峻克制，短句为主。',
+  '## 参考作品',
+  '无',
+].join('\n');
+const CONFIG_COPIED = {
+  genre: '仙侠',
+  targetAudience: '男频',
+  subGenre: '宗门 · 复仇',
+  plotStructure: 'heros_journey',
+  narrativePOV: 'third_limited',
+  logline: '无',
+  coreOutline: '孤儿入宗复仇，一路查到宗主头上。',
+  sellingPoints: '- 残令回放死者最后一刻\n- 执法堂步步紧逼',
+  worldSetting: '灵脉枯竭，宗门垄断灵石。',
+  goldenFinger: '残令：每回放一次折寿一月。',
+  protagonistProfile: '沈默寡言，记仇。',
+  globalGuidance: '1. 不写上帝视角\n2. 每章留钩子\n3. 残令每次使用都有代价\n4. 对白分得出是谁在说',
+  writingStyle: '冷峻克制，短句为主。',
+  referenceWorks: '',
+};
+
+describe('小说配置 · 按格式写、转写成 JSON', () => {
+  let r;
+
+  before(async () => {
+    t.write('.novelforge/config.md', CONFIG);
+    project.invalidate();
+    fake.reset([
+      { text: CONFIG_PROSE, stop: 'end' },
+      { text: JSON.stringify(CONFIG_COPIED), stop: 'end' },
+    ]);
+    onGate = async () => 'proceed';
+    r = await send({ text: '要更黑暗', stage: 'setting', capability: 'generate', target: { kind: 'setting', doc: 'config' } });
+  });
+
+  test('写一次、转一次；写配置的提示词不要 JSON', () => {
+    assert.equal(fake.callCount(), 2);
+    assert.ok(userOf(0).includes('【小说配置格式】') && userOf(0).includes('不写 JSON') && !userOf(0).includes('"coreOutline"'), userOf(0).slice(-800));
+  });
+
+  // 转写只看原文：给多了它会顺手补内容。
+  test('转写只带合同与原文，不带书的上下文', () => {
+    assert.ok(!systemOf(0).includes(TRANSCRIBER) && systemOf(1).includes(TRANSCRIBER), systemOf(1));
+    assert.ok(userOf(1).includes('【小说配置 JSON 合同】') && userOf(1).includes('【原文】') && userOf(1).includes('残令：每回放一次折寿一月。'), userOf(1));
+    assert.ok(!userOf(1).includes('林昭背着灭门旧案进青云宗'), userOf(1));
+  });
+
+  test('照抄的落进 config.md：中文词对到故事结构，八节照原文', async () => {
+    assert.ok(r.gate, JSON.stringify(r.errors));
+    assert.ok(r.gate.detail.includes('一共调了 2 次模型'), r.gate.detail);
+    project.invalidate();
+    const book = await project.readBookConfig();
+    assert.equal(book.structure, 'heros_journey');
+    assert.equal(book.pov, 'third_limited');
+    assert.equal(book.sections.金手指, '残令：每回放一次折寿一月。');
+    assert.equal(book.sections.全局要求, CONFIG_COPIED.globalGuidance);
+  });
+});
+
+describe('小说配置 · 转写两次都改了字：按小节读原文', () => {
+  let r;
+
+  before(async () => {
+    t.write('.novelforge/config.md', CONFIG);
+    project.invalidate();
+    const reworded = JSON.stringify({ ...CONFIG_COPIED, goldenFinger: '残令能回放死者临终一幕，代价是折寿。' });
+    fake.reset([
+      { text: CONFIG_PROSE, stop: 'end' },
+      { text: reworded, stop: 'end' },
+      { text: reworded, stop: 'end' },
+    ]);
+    onGate = async () => 'proceed';
+    r = await send({ text: '要更黑暗', stage: 'setting', capability: 'generate', target: { kind: 'setting', doc: 'config' } });
+  });
+
+  test('重转一次，说清哪几处不是原文里的字', () => {
+    assert.equal(fake.callCount(), 3);
+    assert.ok(userOf(2).includes('【上次转写不合格】这几处不是原文里的字：「残令能回放死者临终一幕，代价是折寿。」'), userOf(2).slice(0, 800));
+  });
+
+  test('不报错：卡片上说清没转成、按小节读了原文；八节照原文落盘', async () => {
+    assert.ok(r.gate, JSON.stringify(r.errors));
+    assert.ok(r.gate.detail.includes('没能整理成 JSON') && r.gate.detail.includes('按小节读了原文'), r.gate.detail);
+    project.invalidate();
+    const book = await project.readBookConfig();
+    assert.equal(book.sections.金手指, '残令：每回放一次折寿一月。');
+    assert.ok(book.sections.核心梗概.includes('孤儿入宗复仇'), book.sections.核心梗概);
+  });
+});
+
+describe('角色图谱 · 按格式写、转写成 JSON', () => {
+  const MANIFEST_PROSE = [
+    '## 林昭',
+    '- 定位：主角',
+    '- 性别：男',
+    '- 叙事职责：背着旧案入宗',
+    '- 关系：',
+    '  - 与沈青：同门，互相试探',
+    '## 沈青',
+    '- 定位：配角',
+    '- 性别：女',
+    '- 叙事职责：引路人',
+    '- 关系：无',
+    '## 周岳',
+    '- 定位：反派',
+    '- 性别：男',
+    '- 叙事职责：执法堂首座',
+    '- 关系：',
+    '  - 与林昭：处处压制',
+  ].join('\n');
+  // 转写模型把定位照抄成了中文（「主角」）：程序对回英文值，不按配角算。
+  const MANIFEST_COPIED = {
+    slots: [
+      { slotId: '林昭', name: '林昭', role: '主角', gender: '男', narrativeDuty: '背着旧案入宗', relations: [{ targetSlotId: '沈青', relation: '同门，互相试探' }] },
+      { slotId: '沈青', name: '沈青', role: 'supporting', gender: '女', narrativeDuty: '引路人', relations: [] },
+      { slotId: '周岳', name: '周岳', role: 'antagonist', gender: '男', narrativeDuty: '执法堂首座', relations: [{ targetSlotId: '林昭', relation: '处处压制' }] },
+    ],
+  };
+  const person = (name) => [`## ${name}`, '### 身份', `${name}出身寒门。`, '### 外貌', '青衫', '### 性格', '冷', '### 语言习惯', '少言', '### 当前状态', '在山门', '### 暗设', '无', '### 专属称呼', '无'];
+  const DETAILS_PROSE = ['林昭', '沈青', '周岳'].flatMap(person).join('\n');
+  const detail = (name, over = {}) => ({ name, 身份: `${name}出身寒门。`, 外貌: '青衫', 性格: '冷', 语言习惯: '少言', 当前状态: '在山门', 暗设: '无', aliases: [], ...over });
+  let r;
+  let cards;
+
+  before(async () => {
+    for (const c of await project.listCharacters()) {
+      t.remove(c.relPath);
+    }
+    project.invalidate();
+    fake.reset([
+      { text: MANIFEST_PROSE, stop: 'end' },
+      { text: JSON.stringify(MANIFEST_COPIED), stop: 'end' },
+      { text: DETAILS_PROSE, stop: 'end' },
+      // 改了一个人的身份：不收，重转一次。
+      { text: JSON.stringify({ entries: [detail('林昭', { 身份: '林昭是寒门子弟。' }), detail('沈青'), detail('周岳')] }), stop: 'end' },
+      { text: JSON.stringify({ entries: [detail('林昭'), detail('沈青'), detail('周岳')] }), stop: 'end' },
+    ]);
+    onGate = async () => 'proceed';
+    r = await send({ stage: 'setting', capability: 'generate', target: { kind: 'setting', doc: 'characters' } });
+    project.invalidate();
+    cards = await project.listCharacters();
+  });
+
+  test('清单写 1、转写 1；详情写 1、转写 2（改了字重转一次）', () => {
+    assert.equal(fake.callCount(), 5);
+    assert.ok([1, 3, 4].every((i) => systemOf(i).includes(TRANSCRIBER)) && !systemOf(0).includes(TRANSCRIBER) && !systemOf(2).includes(TRANSCRIBER));
+    assert.ok(userOf(0).includes('【身份清单格式】') && userOf(0).includes('不写 JSON'), userOf(0).slice(-800));
+    assert.ok(userOf(1).includes('【身份清单 JSON 合同】') && userOf(1).includes('【原文】') && userOf(1).includes('- 叙事职责：执法堂首座'), userOf(1));
+    assert.ok(userOf(4).includes('【上次转写不合格】这几处不是原文里的字：「林昭是寒门子弟。」'), userOf(4).slice(0, 800));
+  });
+
+  test('详情那一步按冻结清单点名，按小标题写', () => {
+    assert.ok(userOf(2).includes('- 林昭（主角，男）：背着旧案入宗\n  - 与沈青：同门，互相试探'), userOf(2).slice(-1500));
+    assert.ok(userOf(2).includes('【本批要写详情的人】\n林昭、沈青、周岳') && userOf(2).includes('【角色详情格式】'), userOf(2).slice(-1500));
+  });
+
+  test('三张卡都建了：中文定位对回来，关系写到双方卡上，身份照原文', () => {
+    assert.ok(r.gate, JSON.stringify(r.errors));
+    assert.ok(r.gate.detail.includes('重转一次'), r.gate.detail);
+    const lin = cards.find((c) => c.name === '林昭');
+    assert.deepEqual(lin.tags, ['主角']);
+    assert.equal(lin.gender, '男');
+    assert.ok(lin.sections.身份.startsWith('林昭出身寒门。'), lin.sections.身份);
+    assert.ok(lin.sections.人物关系.includes('- 与沈青：同门，互相试探') && lin.sections.人物关系.includes('周岳眼中——处处压制'), lin.sections.人物关系);
+    assert.equal(cards.find((c) => c.name === '沈青').gender, '女');
   });
 });

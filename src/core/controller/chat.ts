@@ -35,6 +35,7 @@ import {
   ONE_CALL,
   OUTLINE_TARGET,
   PLOT_BATCH,
+  TRANSCRIBED_SETTINGS,
   WriteMode,
   capabilitiesOn,
   commandOf,
@@ -922,7 +923,8 @@ export async function rewriteArchitecture(c: ChatController, target: CreationTar
   const answer = await askCall({
     message: `重写${where}：在对话页${ask.trim() ? '按你的要求' : '照上游'}重新生成一份，写入前先让你对比。${describeCalls(target.kind === 'setting' ? settingCalls(target.doc) : ONE_CALL)}。`,
     actions: ['开始重写'],
-    tasks: [],
+    // 配置、角色图谱、设定清单写完由转写模型照抄成 JSON（2026-10-25 起），单列一行说清转写交给谁。
+    tasks: target.kind === 'setting' && TRANSCRIBED_SETTINGS.includes(target.doc) ? ['transcribe'] : [],
     contextDetail: true,
     preset: { model: readConfig().model || undefined },
   });
@@ -993,7 +995,7 @@ export async function expandLore(c: ChatController, msg: { relPath?: string; nam
   const answer = await askCall({
     message: `展开设定「${label}」：在对话页发一轮生成，${describeCalls(LORE_EXPAND_CALLS)}。${entry ? '' : '还没有这一条，会先建一条空条目。'}`,
     actions: ['开始展开'],
-    tasks: [],
+    tasks: ['transcribe'],
     contextDetail: true,
     preset: { model: readConfig().model || undefined },
   });

@@ -1346,7 +1346,9 @@ describe('装配：四阶段配方', () => {
   // 角色图谱分两步（上游 AI-Novel-Writer 的两段式）：第一步只出一张身份清单。
   test('角色图谱第一步的契约是身份清单', () => {
     const user = lastOf(sChars);
-    assert.ok(user.includes('角色图谱') && user.includes('{"slots":[...]}') && user.includes('narrativeDuty'), user.slice(-600));
+    // 2026-10-25 起按格式写（一人一份「## 名字」），不写 JSON；JSON 合同挪给转写那一步。
+    assert.ok(user.includes('角色图谱') && user.includes('【身份清单格式】') && user.includes('- 叙事职责：'), user.slice(-600));
+    assert.ok(user.includes('不写 JSON') && !user.includes('{"slots"'), user.slice(-600));
   });
 
   // ★ 上游内置模板里的这段设计原则从来没发出去过（只发 taskGuidance）。这里补上。
@@ -2314,7 +2316,7 @@ describe('装配：二期的新层与移植的契约', () => {
       action: GEN('setting'),
       target: { kind: 'setting', doc: 'characters' },
       ask: '',
-      step: { kind: 'rosterDetails', manifest: '{"slots":[{"slotId":"1","name":"林昭"}]}', slotIds: ['1'], done: '' },
+      step: { kind: 'rosterDetails', manifest: '- 林昭（主角，男）：背着旧案入宗', names: ['林昭'], done: '' },
     });
     compact = await build({
       action: GEN('plot'),
@@ -2431,10 +2433,12 @@ describe('装配：二期的新层与移植的契约', () => {
 
   // ------------------------------------------------------------ 链里的后几步
 
-  test('角色详情那一步带冻结清单与这一批的 slotId，禁止写关系', () => {
+  test('角色详情那一步带冻结清单与这一批的人，不写关系', () => {
     const user = lastOf(details);
-    assert.ok(user.includes('【冻结身份与关系清单】') && user.includes('"name":"林昭"') && user.includes('{"entries":[...]}'), user.slice(-1500));
-    assert.ok(user.includes('禁止输出人物关系'), user.slice(-800));
+    assert.ok(user.includes('【冻结身份与关系清单】\n- 林昭（主角，男）：背着旧案入宗') && user.includes('【本批要写详情的人】\n林昭'), user.slice(-1500));
+    // 2026-10-25 起按小标题写，不写 JSON。
+    assert.ok(user.includes('【角色详情格式】') && user.includes('不写 JSON') && !user.includes('{"entries"'), user.slice(-1500));
+    assert.ok(user.includes('不写人物关系——关系由冻结清单唯一生成'), user.slice(-800));
   });
 
   test('紧凑重建写明上次哪里不合格，只要这一章', () => {
@@ -2451,7 +2455,8 @@ describe('装配：二期的新层与移植的契约', () => {
     assert.ok(!user.includes('# 我的脑洞'), user.slice(-3500));
     assert.ok(user.includes('计划总章数：100 章') && user.includes('全书总字数约：100 × 3000 = 300000 字'), user.slice(0, 4000));
     assert.ok(user.includes('【作者已有配置】'), user.slice(-3500));
-    assert.ok(user.includes('totalChapters 若输出必须严格等于 100'), user.slice(-1500));
+    // 规模是作者定的：不让模型写（2026-10-25 起按格式写，原来是「totalChapters 若输出必须严格等于 100」）。
+    assert.ok(user.includes('【小说配置格式】') && !user.includes('## 规模'), user.slice(-1500));
     assert.ok(config.messages[0].content.includes('擅长从简短灵感中提炼完整、一致且可执行的小说配置'), config.messages[0].content.slice(0, 200));
   });
 });

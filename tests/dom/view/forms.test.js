@@ -87,6 +87,11 @@ describe('一句话弹窗 · 从主按钮打开', { skip: JSDOM_SKIP }, () => {
     assert.ok(note(ui).includes('全书约 30 万字'), note(ui));
   });
 
+  // 2026-10-25 起配置写完转写一次：只报数，原因太长不进这一行。
+  test('说明里报配置的调用次数，不带原因', () => {
+    assert.ok(note(ui).includes('预计 2 次调用，最多 5 次 · Ctrl+Enter 提交'), note(ui));
+  });
+
   test('Ctrl+Enter 提交：切到对话页，发 send 带 setup', () => {
     ui.sent.length = 0;
     type(ui, 'idea', '一个从火里活下来的人回到起火的地方');
