@@ -146,9 +146,9 @@ function isPlaceholder(text: string): boolean {
   return /^[（(]待补充[）)]$/u.test(text.trim());
 }
 
-/** 交给模型的冻结清单（JSON）。 */
-export function frozenGoalsJson(goals: readonly FrozenGoal[]): string {
-  return JSON.stringify(goals.map((g) => ({ id: g.id, text: g.text })));
+/** 交给模型的冻结清单：一项一行「- g1：目标原文」（2026-10-25 起审稿写自然语言，清单也不再是一段 JSON）。 */
+export function frozenGoalsList(goals: readonly FrozenGoal[]): string {
+  return goals.map((g) => `- ${g.id}：${g.text}`).join('\n');
 }
 
 // ---------------------------------------------------------------- 引文
@@ -245,10 +245,11 @@ export interface RawReview {
 }
 
 /**
- * 读模型交回的审稿 JSON。**宽松**（第 1 条：模型不听话是常态）：认代码围栏、认前后多余的话
- * （取第一个 `{` 到最后一个 `}`）、`critical / severe` 当严重、`minor / warn` 当建议，
+ * 读审稿 JSON（2026-10-25 起是转写模型照抄出来的那份，generation/review.ts；模型自己给了 JSON、老会话也走这里）。
+ * **宽松**（第 1 条：模型不听话是常态）：认代码围栏、认前后多余的话
+ * （取第一个 `{` 到最后一个 `}`）、`critical / severe` 当严重、`minor / warn` 当建议，结论认中文词，
  * 单条坏了跳过那一条。只有「根本不是 JSON 对象」或「没有 items 数组」才算不合格——
- * 那时审稿链按合同重建一次（generation/review.ts）。
+ * 那时审稿链先重转、还不行再按格式重写一次（generation/review.ts）。
  */
 export function parseReviewJson(raw: string): { ok: true; value: RawReview } | { ok: false; reason: string } {
   const text = (raw ?? '').trim().replace(/^```(?:json)?[ \t]*\r?\n?/iu, '').replace(/\r?\n?```\s*$/u, '');
@@ -310,7 +311,7 @@ export function parseReviewJson(raw: string): { ok: true; value: RawReview } | {
       const evidence = Array.isArray(g.evidence) ? g.evidence : [];
       return {
         id: typeof g.id === 'string' ? g.id.trim() : String(g.id ?? ''),
-        status: typeof g.status === 'string' ? g.status.trim().toLowerCase() : '',
+        status: normalizeStatus(g.status),
         description: clip(g.description, REVIEW_DESCRIPTION_MAX * 2),
         quotes: evidence
           .map((x) => (typeof x === 'string' ? x : (x as { quote?: unknown } | null)?.quote))
@@ -338,6 +339,13 @@ function normalizeSeverity(value: unknown): ReviewSeverity | 'pass' | undefined 
     return 'pass';
   }
   return undefined;
+}
+
+/** 目标核对的结论：代码原样（小写），转写漏对的中文词也认（报告卡上的说法，{@link GOAL_STATUS_LABEL}）。 */
+function normalizeStatus(value: unknown): string {
+  const s = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  const zh = (Object.keys(GOAL_STATUS_LABEL) as GoalStatus[]).find((k) => GOAL_STATUS_LABEL[k] === s);
+  return zh ?? s;
 }
 
 // ---------------------------------------------------------------- 校验

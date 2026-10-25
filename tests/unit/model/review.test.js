@@ -60,9 +60,9 @@ describe('review.ts · 目标冻结', () => {
     assert.deepEqual(r.freezeGoals(''), []);
   });
 
-  test('交给模型的清单只有 id 与目标原文', () => {
-    const json = JSON.parse(r.frozenGoalsJson(r.freezeGoals('甲；乙')));
-    assert.deepEqual(json, [{ id: 'g1', text: '甲' }, { id: 'g2', text: '乙' }]);
+  // 2026-10-25 起审稿写自然语言，清单也是一项一行。
+  test('交给模型的清单只有 id 与目标原文，一项一行', () => {
+    assert.equal(r.frozenGoalsList(r.freezeGoals('甲；乙')), '- g1：甲\n- g2：乙');
   });
 });
 
@@ -130,6 +130,19 @@ describe('review.ts · 解析', () => {
   test('不是 JSON、没有 items 数组都不合格', () => {
     assert.equal(r.parseReviewJson('这一章写得很好。').ok, false);
     assert.equal(r.parseReviewJson('{"summary":"x"}').ok, false);
+  });
+
+  // 转写模型该把结论对到代码；漏对、照抄了中文词的也认，不当成认不出的结论整项降级。
+  test('目标核对的结论认中文词；引文可以是字符串或 { quote }', () => {
+    const p = r.parseReviewJson(JSON.stringify({
+      items: [],
+      goalReviews: [
+        { id: 'g1', status: '已完成', description: 'd', evidence: ['甲乙丙丁'] },
+        { id: 'g2', status: 'UNMET', description: 'd', evidence: [{ quote: '戊己庚辛' }] },
+        { id: 'g3', status: '待核实', description: 'd', evidence: [] },
+      ],
+    }));
+    assert.deepEqual(p.value.goalReviews.map((g) => [g.status, g.quotes]), [['completed', ['甲乙丙丁']], ['unmet', ['戊己庚辛']], ['unknown', []]]);
   });
 
   test('goalReviews 缺席与空数组不同', () => {

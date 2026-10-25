@@ -111,8 +111,8 @@ describe('审稿配方 · 第 3 章', () => {
   test('本章细纲与冻结清单都在', () => {
     assert.ok(byKind(b, 'plot').some((i) => i.source === P3));
     assert.match(lastUser(b), /【本章目标逐项核对｜冻结清单】/);
-    const listed = JSON.parse(/冻结清单：(\[.*\])/.exec(lastUser(b))[1]);
-    assert.deepEqual(listed, goals.map((g) => ({ id: g.id, text: g.text })));
+    // 2026-10-25 起审稿写自然语言，清单也是一项一行「- g1：目标原文」。
+    assert.ok(lastUser(b).includes(`冻结清单：\n${goals.map((g) => `- ${g.id}：${g.text}`).join('\n')}\n`), lastUser(b).slice(-2500));
   });
 
   // 章末钩子并进了「看点」：爽点与章末悬念混在一起，不是一件件到期的动作，不冻结成目标。
@@ -148,10 +148,14 @@ describe('审稿配方 · 第 3 章', () => {
     assert.equal(byKind(b, 'style').length, 0);
   });
 
-  test('作者的话是「重点检查的方面」；契约是 JSON 并说清引文找不到会丢', () => {
+  // 2026-10-25 起改成转写：审稿按小标题写自然语言，JSON 由转写模型照抄。
+  test('作者的话是「重点检查的方面」；契约是按小标题写、不写 JSON，并说清引文找不到会丢', () => {
     assert.match(lastUser(b), /# 作者要求重点检查的方面[^\n]*\n\n重点看年轻守卫的动机/);
     assert.match(lastUser(b), /引文在正文里找不到的问题会被丢弃/);
-    assert.match(lastUser(b), /只输出一个可由 JSON\.parse 读取的 JSON 对象/);
+    assert.match(lastUser(b), /按「### 总评」「### 问题」「### 目标核对」三个小标题写审稿报告，不写 JSON/);
+    assert.match(lastUser(b), /严重程度只写这三个词之一：严重/);
+    assert.doesNotMatch(lastUser(b), /JSON\.parse|"severity"|goalReviews/);
+    assert.doesNotMatch(system(b), /severity|JSON/);
     assert.doesNotMatch(lastUser(b), /本章执行卡/);
   });
 
@@ -161,16 +165,16 @@ describe('审稿配方 · 第 3 章', () => {
       { action: REVIEW, target: { kind: 'manuscript', plotRelPath: P3 }, ask: '', reviewGoals: goals, step: { kind: 'reviewRetry', why: 'invalid', reason: '缺少 items 数组' } },
       config
     );
-    assert.match(lastUser(again), /未通过合同校验（缺少 items 数组），已被丢弃/);
+    assert.match(lastUser(again), /未通过格式校验（缺少 items 数组），已被丢弃/);
   });
 
-  test('细纲没有关键事件：goalReviews 输出空数组', async () => {
+  test('细纲没有关键事件：「目标核对」只写「无」', async () => {
     const empty = await builderMod.buildContext(
       project,
       { action: REVIEW, target: { kind: 'manuscript', plotRelPath: P3 }, ask: '', reviewGoals: [] },
       config
     );
-    assert.match(lastUser(empty), /goalReviews 输出空数组/);
+    assert.match(lastUser(empty), /本章细纲没有可核对的关键事件：「### 目标核对」下面只写「无」/);
   });
 });
 

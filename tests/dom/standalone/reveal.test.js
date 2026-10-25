@@ -27,7 +27,8 @@ describe('章节条「审稿」', { skip: JSDOM_SKIP }, () => {
   test('有正文的章：亮，提示里写调用次数，点了发 chapterAction', () => {
     ui.post({ type: 'editorOpen', file: file('chapters/002-入镇.md', BODY) });
     assert.equal(btn().disabled, false);
-    assert.match(btn().title, /只出报告，不改文件。预计 1 次调用，最多 3 次/);
+    // 2026-10-25 起审稿多一次转写：审 1 次、转写 1 次，最多 7 次。
+    assert.match(btn().title, /只出报告，不改文件。预计 2 次调用，最多 7 次/);
     ui.clickEl(btn());
     const sent = ui.last('chapterAction');
     assert.equal(sent.action, 'review');

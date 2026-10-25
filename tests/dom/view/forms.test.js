@@ -309,18 +309,18 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     assert.equal(field(ui, 'mode').value, 'draft');
   });
 
-  // 第 5、6 章没排细纲、大纲覆盖到第 20 章：写到时先拆。上限含自动续写（一章最多 8 次）、写前比对（最多 2 次）
-  // 与拆细纲（2 章一批最多 6 次）。
+  // 第 5、6 章没排细纲、大纲覆盖到第 20 章：写到时先拆。上限含自动续写（一章最多 8 次）、写前比对（比对 1 次、转写 1 次、
+  // 重转 1 次，最多 3 次）与拆细纲（2 章一批最多 6 次）。
   test('实时说明：写几章、哪几章写到时先拆细纲、预计与最多', () => {
     assert.ok(note(ui).includes('要写 3 章（第 4–6 章）。第 5–6 章还没有细纲，写到时先拆'), note(ui));
-    assert.ok(note(ui).includes('预计 5–11 次调用，最多 44 次'), note(ui));
+    assert.ok(note(ui).includes('预计 5–14 次调用，最多 47 次'), note(ui));
   });
 
   test('大纲只覆盖到第 4 章：第 5 章在它前面收住', () => {
     ui.post({ type: 'project', tree: { ...sampleTree(), book: { ...sampleTree().book, outlineCoverage: 4 } } });
     open();
     assert.ok(note(ui).includes('要写 1 章（第 4 章）；第 5 章还没有细纲、大纲也没覆盖到，写到它前面为止。'), note(ui));
-    assert.ok(note(ui).includes('预计 1–3 次调用，最多 11 次'), note(ui));
+    assert.ok(note(ui).includes('预计 1–4 次调用，最多 12 次'), note(ui));
     ui.post({ type: 'project', tree: sampleTree() });
     open();
   });
@@ -392,7 +392,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     type(ui, 'from', 4);
     type(ui, 'to', 6);
     choose('finalize');
-    assert.ok(note(ui).includes('预计 14–29 次调用，最多 62 次'), note(ui));
+    assert.ok(note(ui).includes('预计 14–32 次调用，最多 65 次'), note(ui));
     assert.ok(note(ui).includes('每写完一章就同步'), note(ui));
   });
 
@@ -436,7 +436,7 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     const sel = field(ui, 'review');
     sel.value = 'on';
     sel.dispatchEvent(new ui.window.Event('change', { bubbles: true }));
-    assert.ok(note(ui).includes('预计 8–14 次调用，最多 53 次'), note(ui));
+    assert.ok(note(ui).includes('预计 11–20 次调用，最多 68 次'), note(ui));
     assert.ok(note(ui).includes('报告放进一个新会话「批量审稿」'), note(ui));
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));

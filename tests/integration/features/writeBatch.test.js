@@ -186,10 +186,17 @@ describe('只写正文：下一可写章起 3 章', () => {
   });
   after(() => cleanup(t.dir, bundle.db));
 
-  test('确认框报区间、模式与上限（一章最多 9 次，写前比对最多 2 次）', () => {
+  // 写前比对 2026-10-25 起多一次转写：比对 1 次、转写 1 次、重转 1 次。
+  test('确认框报区间、模式与上限（一章最多 9 次，写前比对最多 3 次）', () => {
     const c = h.confirms[0];
-    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3–9 次调用，最多 33 次。现在写？');
+    assert.equal(c.message, '第 1–3 章：要写 3 章正文（只写正文），预计 3–12 次调用，最多 36 次。现在写？');
     assert.match(c.detail, /一章一章串行写/);
+  });
+
+  // 写前比对要转写：没有要拆的细纲、没开审稿也单列转写交给谁（不跟这一次挑的模型）。
+  test('确认框单列转写交给谁', () => {
+    const c = h.confirms[0];
+    assert.ok(c.call.fixed?.some((x) => x.startsWith('转写') && x.includes('不跟这一次挑的模型')), JSON.stringify(c.call));
   });
 
   test('写了 3 章，一章一次，不看并发设置', () => {
@@ -655,6 +662,80 @@ describe('写前冲突检查：细纲与前面定稿的事实对不上，停在�
   });
 });
 
+// 2026-10-25 起改成转写：比对的模型按格式写（两句原句用「」括起来），转写模型照抄成 JSON；只写「无矛盾」的不转。
+const isTranscribe = (messages) => (messages[0]?.content ?? '').includes('格式转写员');
+
+describe('写前冲突检查 · 按格式写，转写模型照抄成 JSON', () => {
+  const PROSE = ['### 矛盾 1', '细纲：「第 2 章林昭查到一点东西」', '事实：「林昭在第1章丢了第1块玉佩」（第 1 章）', '为什么：玉佩已经丢了'].join('\n');
+  const conflict = (plot) => JSON.stringify({ conflicts: [{ plot, fact: '林昭在第1章丢了第1块玉佩', chapter: 1, why: '玉佩已经丢了' }] });
+  const COPIED = conflict('第 2 章林昭查到一点东西');
+
+  /** 比对的那一次答 `check`，转写那几次按顺序答 `copies`（答完了再来就是测试写错了）。 */
+  function proseReply(check, copies = []) {
+    const base = factfulReply();
+    const queue = [...copies];
+    return (messages) => {
+      if (isTranscribe(messages)) return queue.shift() ?? '（转写不该再被调用）';
+      if (isPlotCheck(messages)) return check;
+      return base(messages);
+    };
+  }
+
+  test('有矛盾：比对写一段、转写照抄一次（只带合同与原文）；停在第 2 章前面，挂黄 ❗', async () => {
+    const t = await fresh('wb-check-prose');
+    replyFn = proseReply(PROSE, [COPIED]);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
+    const check = fake.calls.find(isPlotCheck);
+    assert.match(check[0].content, /不写 JSON/);
+    const copies = fake.calls.filter(isTranscribe);
+    assert.equal(copies.length, 1);
+    const user = copies[0].at(-1).content;
+    assert.ok(user.includes('【写前冲突检查 JSON 合同】') && user.includes(`【原文】\n${PROSE}`), user);
+    assert.ok(!user.includes('# 前面各章定稿的连续性事实'), user);
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    const fails = await failuresOf(t, PLOT(2));
+    assert.ok(
+      fails.some((x) => x.op === 'plotCheck' && /细纲「第 2 章林昭查到一点东西」与第 1 章同步下来的事实「林昭在第1章丢了第1块玉佩」矛盾：玉佩已经丢了/.test(x.message)),
+      JSON.stringify(fails)
+    );
+    cleanup(t.dir, bundle.db);
+  });
+
+  test('只写了「无矛盾」：不转写，照写', async () => {
+    const t = await fresh('wb-check-none');
+    replyFn = proseReply('无矛盾');
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
+    assert.ok(t.has(CH(2)));
+    assert.ok(fake.calls.some(isPlotCheck));
+    assert.ok(!fake.calls.some(isTranscribe));
+    cleanup(t.dir, bundle.db);
+  });
+
+  test('转写改了原句：重转一次，说清哪一处不是原文里的字', async () => {
+    const t = await fresh('wb-check-reword');
+    replyFn = proseReply(PROSE, [conflict('第 2 章林昭又查到了东西'), COPIED]);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 3 }, mode: 'finalize', call: {} });
+    const copies = fake.calls.filter(isTranscribe);
+    assert.equal(copies.length, 2);
+    assert.ok(copies[1].at(-1).content.includes('【上次转写不合格】这几处不是原文里的字：「第 2 章林昭又查到了东西」'), copies[1].at(-1).content.slice(0, 800));
+    assert.ok(t.has(CH(1)) && !t.has(CH(2)));
+    cleanup(t.dir, bundle.db);
+  });
+
+  // 原来解析失败的走法：这一步没做成，记一句、照写（检查是额外的一道）。
+  test('转写调用失败：这一步没做成，照写', async () => {
+    const t = await fresh('wb-check-transcribe-fail');
+    settings.tierModels = { quality: ['p/broken'] };
+    settings.taskTiers = { transcribe: 'quality' };
+    replyFn = proseReply(PROSE, [COPIED, COPIED]);
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 2 }, mode: 'finalize', call: {} });
+    assert.ok(fake.calls.some((c) => isTranscribe(c) && c.ref === 'p/broken'));
+    assert.ok(t.has(CH(2)));
+    assert.ok(!(await failuresOf(t, PLOT(2))).some((x) => x.op === 'plotCheck'));
+    cleanup(t.dir, bundle.db);
+  });
+});
+
 describe('写完这一章就停；停止', () => {
   test('点了「写完这一章就停」：这一章写完、落盘，然后收', async () => {
     const t = await fresh('wb-pause');
@@ -837,7 +918,7 @@ describe('开写之前补建角色卡：定稿过的细纲里出场两章以上�
 
   test('确认框里说了给谁建卡、几次调用，并算进总数', () => {
     const c = h.confirms[0];
-    assert.match(c.message, /预计 2–4 次调用/);
+    assert.match(c.message, /预计 2–5 次调用/);
     assert.match(c.detail, /开写之前先给老周建角色卡（同步过的章里已经出场 2 章以上、还没有卡；1 次调用/);
   });
 
@@ -924,5 +1005,55 @@ describe('写完即审稿', () => {
     assert.match(c.detail, /每写完一章先审一遍/);
     assert.match(c.detail, /批量审稿/);
     cleanup(t2.dir, bundle.db);
+  });
+});
+
+// 2026-10-25 起改成转写：审稿按小标题写（引文用「」括出来），转写模型照抄成 JSON，之后照旧拿正文核引文。
+describe('写完即审稿 · 按格式写，转写模型照抄成 JSON', () => {
+  let t;
+  let quote = '';
+  let session;
+  const prose = () =>
+    ['### 总评', '第 1 章还行', '### 问题', `- 剧情合理性（严重）：这一句有问题。原文：「${quote}」`, '### 目标核对', `- g1（已完成）：查到了。证据：「${quote}」`].join('\n');
+  before(async () => {
+    t = await fresh('wb-review-prose');
+    replyFn = (messages) => {
+      if (isTranscribe(messages)) {
+        return JSON.stringify({
+          summary: '第 1 章还行',
+          items: [{ category: '剧情合理性', severity: 'error', quote, description: '这一句有问题。' }],
+          goalReviews: [{ id: 'g1', status: 'completed', description: '查到了。', evidence: [quote] }],
+        });
+      }
+      if (isReview(messages)) {
+        quote = /# 待审正文\n\n([\s\S]{20})/.exec(messages[messages.length - 1].content)?.[1] ?? '';
+        return { text: prose(), stop: 'end' };
+      }
+      return defaultReply(messages);
+    };
+    await bundle.batch.writeManuscripts(t.project, { range: { from: 1, to: 1 }, review: true, call: {} });
+    const dir = t.project.sessionsDir;
+    const [file] = require('fs').readdirSync(dir).filter((f) => f.endsWith('.json'));
+    session = JSON.parse(require('fs').readFileSync(require('path').join(dir, file), 'utf8'));
+  });
+  after(() => cleanup(t.dir, bundle.db));
+
+  test('审的那一次不要 JSON；转写那一次只带合同与审稿原文', () => {
+    const review = fake.calls.find(isReview);
+    assert.match(review.at(-1).content, /不写 JSON/);
+    const copies = fake.calls.filter(isTranscribe);
+    assert.equal(copies.length, 1);
+    const user = copies[0].at(-1).content;
+    assert.ok(user.includes('【审稿报告 JSON 合同】') && user.includes(`【原文】\n${prose()}`), user.slice(0, 1500));
+    assert.ok(!user.includes('# 待审正文'), user.slice(0, 1500));
+  });
+
+  test('报告卡进了「批量审稿」会话：引文核过正文，目标照转写的结论；调用 2 次', () => {
+    const turn = session.turns[1];
+    assert.equal(turn.review.report.summary, '第 1 章还行');
+    assert.deepEqual(turn.review.report.issues.map((i) => [i.severity, i.quote]), [['error', quote]]);
+    assert.deepEqual(turn.review.report.goals.map((g) => g.status), ['completed']);
+    assert.equal(turn.review.calls, 2);
+    assert.match(turn.content, /^# 第 1 章《停舟》审稿/);
   });
 });

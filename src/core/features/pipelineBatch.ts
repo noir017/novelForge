@@ -50,7 +50,7 @@ import { CastCardsPlan, createCastCards, planCastCards } from './characterCard';
 import { checkPlotAgainstFacts } from './plotCheck';
 import { describePlanned, planThreadsFromOutline } from './threads';
 import { expandLoreEntries } from './lore';
-import { poolIO } from './poolIO';
+import { poolIO, poolTranscriber } from './poolIO';
 import { checkpointBefore } from './checkpoint';
 import { thinLoreFor } from '../views/lore';
 import { threadReminders } from '../views/threads';
@@ -620,11 +620,13 @@ export async function writeManuscripts(
       ]
         .filter(Boolean)
         .join('\n'),
+      // 转写一律列上：写前冲突检查、写完即审稿、边写边拆的细纲都要转写成 JSON（2026-10-25 起）。
       tasks: [
         'manuscript',
         ...(reviewing ? ['review' as const] : []),
         'plotSummary',
-        ...(plan.plotBatches.length > 0 ? ['plotOutline' as const, 'transcribe' as const] : []),
+        ...(plan.plotBatches.length > 0 ? ['plotOutline' as const] : []),
+        'transcribe',
         ...(mode === 'finalize' || castCards.plans.length > 0 ? ['characterCard' as const] : []),
       ],
       contextDetail: true,
@@ -682,6 +684,8 @@ async function runWriteBatch(
   await runTask(
     '批量写章',
     async ({ signal, report, stopRequested, finish }) => {
+      // 写前冲突检查的转写（2026-10-25 起）：走「转写」那一档，那一档一个可用的都没有时用比对的那个池。
+      const checkTranscriber = checkPool ? poolTranscriber(signal, checkPool) : undefined;
       // 先存一个存档点（features/checkpoint.ts）：补卡、边写边拆、写章、定稿都在后面，整本退得回去。
       // 「边写边拆」拆细纲走的是 runPlotBatch，不另存。
       const writing = rangeLabel(plan.chapters[0], plan.chapters[plan.chapters.length - 1]);
@@ -771,7 +775,7 @@ async function runWriteBatch(
         if (checkPool) {
           report({ message: `第 ${no} 章 · 比对细纲与既成事实`, current: i, total });
           try {
-            const check = await checkPlotAgainstFacts(project, no, checkPool, signal);
+            const check = await checkPlotAgainstFacts(project, no, checkPool, signal, checkTranscriber);
             calls += check.calls;
             if (check.conflicts.length > 0) {
               const lines = check.conflicts.map(describeConflict);
@@ -1080,9 +1084,9 @@ type ReviewOutcome =
   | { cancelled: true; calls: number };
 
 /**
- * 审一章：与对话页同一条审稿链（generation/review.ts 的 `completeReview`：截断重来、不合格重建、
- * 引文校验、目标核对），只是每次调用走 `review` 档的池、不流式。**不抛**（取消除外，也收成一个结果）：
- * 审稿失败不该被当成写章失败把批量停下。
+ * 审一章：与对话页同一条审稿链（generation/review.ts 的 `completeReview`：截断重来、转写成 JSON、不合格重写、
+ * 引文校验、目标核对），只是每次调用走 `review` 档的池、不流式；转写走「转写」那一档（`poolIO` 的 `transcribe`）。
+ * **不抛**（取消除外，也收成一个结果）：审稿失败不该被当成写章失败把批量停下。
  */
 async function reviewOne(
   project: NovelProject,

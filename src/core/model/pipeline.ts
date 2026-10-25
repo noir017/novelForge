@@ -926,13 +926,14 @@ export const WRITE_CALLS: CallEstimate = {
 
 /**
  * 写一章之前比对细纲与前面定稿的连续性事实（`features/plotCheck.ts`）：前面没有定稿过的章、或者细纲上
- * 记了 `factCheckOk` 时 0 次；输出不合格按合同重来 1 次。
+ * 记了 `factCheckOk` 时 0 次；比对 1 次、转写模型照抄成 JSON 1 次（2026-10-25 起；只写了「无矛盾」的不转），
+ * 转写不合格重转 1 次。
  */
 export const PLOT_CHECK_CALLS: CallEstimate = {
   low: 0,
-  high: 1,
-  max: 2,
-  why: '前面有同步过的章时，写之前比对一次细纲与既成事实；输出不合格重来 1 次',
+  high: 2,
+  max: 3,
+  why: '前面有同步过的章时，写之前比对一次细纲与既成事实、转写模型照抄成 JSON 1 次（没有矛盾不转）；转写不合格重转 1 次',
 };
 
 /**
@@ -975,14 +976,15 @@ export function threadsBackfillCalls(n: number, planFirst: boolean): CallEstimat
 }
 
 /**
- * 审一章：1 次；输出被截断时整份重来 1 次（截断的那一半不可信，不续接），解不出合格的
- * JSON 时按合同重建 1 次。移植自 AI-Novel-Writer `review-chapter.command.ts` 的重试（RV:288-367）。
+ * 审一章：审 1 次、转写模型照抄成 JSON 1 次（2026-10-25 起）；输出被截断时整份重来 1 次（截断的那一半不可信，不续接），
+ * 没按格式写或转写没成时按格式重写 1 次，每一份原文转写不合格各重转 1 次——审最多 3 次、转写最多 4 次。
+ * 重试移植自 AI-Novel-Writer `review-chapter.command.ts`（RV:288-367）。
  */
 export const REVIEW_CALLS: CallEstimate = {
-  low: 1,
-  high: 1,
-  max: 3,
-  why: '输出被截断或不合格时重来，最多再 2 次',
+  low: 2,
+  high: 2,
+  max: 7,
+  why: '审 1 次、转写模型照抄成 JSON 1 次；被截断或不合格时重来，审最多再 2 次，转写不合格各重转 1 次',
 };
 
 /**

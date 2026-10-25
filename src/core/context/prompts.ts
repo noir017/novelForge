@@ -57,7 +57,7 @@ import {
   REVIEW_ITEMS_MAX,
   REVIEW_QUOTE_MAX,
   REVIEW_SUMMARY_MAX,
-  frozenGoalsJson,
+  frozenGoalsList,
 } from '../model/review';
 import {
   BookConfig,
@@ -521,7 +521,7 @@ export const REVIEW_SYSTEM_PROMPT = [
   '',
   '【审查原则】',
   '1. 举证审查：只报告有明确文本证据的问题。每个问题必须逐字引用「待审正文」里的具体句子。',
-  '2. 宁缺毋滥：没有问题的维度可以省略；如需明确已检查，可输出一条 severity 为 pass 的记录。不要凑数量。',
+  '2. 宁缺毋滥：没有问题的维度可以省略；如需明确已检查，可以写一条「通过」。不要凑数量。',
   '3. 只查一致性不评文笔：不报告风格偏好、文笔建议、创作建议。只报告可验证的事实矛盾。',
   '4. 客观可验证：报出的每个问题必须能被第三方编辑复查确认。',
   '',
@@ -542,8 +542,12 @@ export const REVIEW_SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
- * 审稿的输出契约：JSON 合同 + 目标逐项核对。移植自 `consistency_check` 的 systemSuffix（PT:917-970）
+ * 审稿的输出契约：报告格式 + 目标逐项核对。移植自 `consistency_check` 的 systemSuffix（PT:917-970）
  * 与 `buildChapterGoalReviewPrompt`（`chapter-goal-review.ts:35-59`），两段原是分开拼的，这里合成一份。
+ *
+ * 2026-10-25 起改成转写：按「总评」「问题」「目标核对」三个小标题写，不写 JSON；引文用「」括出来，转写模型照抄成
+ * JSON（{@link reviewJsonContract}，generation/review.ts）。各条要求照原来的 JSON 合同搬过来，只把字段名换成中文说法、
+ * 枚举换成中文词（严重 / 建议 / 通过，已完成 / 未完成 / 待核实）。
  *
  * 比上游多说了一句「引文在正文里找不到的问题会被丢弃」：上游不校验普通问题的引文，这里校验
  * （model/review.ts），先告诉模型规矩，比事后丢掉它编的那几条划算。
@@ -554,40 +558,71 @@ function reviewContract(facts: PromptFacts): string {
   if (facts.step?.kind === 'reviewRetry') {
     lines.push(
       facts.step.why === 'truncated'
-        ? '上一轮审稿输出因长度限制而中断，已被丢弃，不得引用或续接。请从头完成审稿任务，只输出一个完整 JSON；说明写精炼些。'
-        : `上一轮审稿输出未通过合同校验（${facts.step.reason ?? '格式不对'}），已被丢弃，不得引用或续接。请重新完成原始审稿任务。`,
+        ? '上一轮审稿输出因长度限制而中断，已被丢弃，不得引用或续接。请从头完成审稿任务，按下面的格式写完整；说明写精炼些。'
+        : `上一轮审稿输出未通过格式校验（${facts.step.reason ?? '格式不对'}），已被丢弃，不得引用或续接。请按下面的格式重新完成原始审稿任务。`,
       ''
     );
   }
   lines.push(
-    '【输出格式（JSON）】',
-    '请严格输出以下 JSON 格式：',
-    '{"summary":"一句话总体评价","items":[{"category":"剧情连贯性","severity":"pass","description":"未发现与前文矛盾"},{"category":"剧情合理性","severity":"error","quote":"原文中的具体句子","description":"问题描述"},{"category":"角色状态","severity":"warning","quote":"原文句子","description":"轻微不一致说明"}],"goalReviews":[{"id":"g1","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个子动作的判断，再汇总","status":"completed"}]}',
-    '',
-    'severity 取值：error=严重矛盾强烈建议修复，warning=轻微不一致酌情修复，pass=该维度通过无问题。',
-    `items 必须为 1–${REVIEW_ITEMS_MAX} 条；不要求每个检查维度单列一项，不得为覆盖类别而凑 pass 项，同一问题不得重复。`,
-    `quote 必须逐字摘自「待审正文」里的一句连续原文，不拼接、不改写、不省略中间的字；每项 quote 不超过 ${REVIEW_QUOTE_MAX} 字，description 不超过 ${REVIEW_DESCRIPTION_MAX} 字；summary 不超过 ${REVIEW_SUMMARY_MAX} 字。quote 只在 pass 时可省略。**引文在正文里找不到的问题会被丢弃。**`,
+    '【输出格式】',
+    '按「### 总评」「### 问题」「### 目标核对」三个小标题写审稿报告，不写 JSON。',
+    `- 总评：一句话总体评价，不超过 ${REVIEW_SUMMARY_MAX} 字。`,
+    `- 问题：一条一行、行首写「- 」，共 1–${REVIEW_ITEMS_MAX} 条。每条先写检查维度，括号里写严重程度，冒号后写说明；有引文的，最后写「原文：」，把待审正文里的那一句用「」括起来。`,
+    '- 严重程度只写这三个词之一：严重＝严重矛盾，强烈建议修复；建议＝轻微不一致，酌情修复；通过＝该维度通过，无问题。',
+    '- 不要求每个检查维度单列一条，不得为覆盖类别而凑「通过」，同一问题不得重复。',
+    `- 引文必须逐字摘自「待审正文」里的一句连续原文，不拼接、不改写、不省略中间的字；每句引文不超过 ${REVIEW_QUOTE_MAX} 字，每条说明不超过 ${REVIEW_DESCRIPTION_MAX} 字。引文只在「通过」时可省略。**引文在正文里找不到的问题会被丢弃。**`,
     ''
   );
   if (goals.length === 0) {
-    lines.push('【本章目标逐项核对】本章细纲没有可核对的关键事件：goalReviews 输出空数组 []。', '');
+    lines.push('【本章目标逐项核对】本章细纲没有可核对的关键事件：「### 目标核对」下面只写「无」。', '');
   } else {
     lines.push(
       '【本章目标逐项核对｜冻结清单】',
-      '在同一个 JSON 根对象里增加 goalReviews 数组（不受 items 的条数限制）。冻结清单来自本章细纲的关键事件；按 id、evidence、description、status 顺序逐项返回 {"id":"原始id","evidence":[{"quote":"待审正文逐字引文"}],"description":"逐个列出目标原文中的每个当章子动作及其判断，再汇总","status":"completed|unmet|unknown"}，不得删项、改写目标或自创 id。',
-      '依次判断：',
+      '在「### 目标核对」下逐项核对，不受「问题」条数的限制。冻结清单来自本章细纲的关键事件；按清单顺序一项一行：先写清单里的编号（g1、g2……），括号里写结论，冒号后逐个列出目标原文中的每个当章子动作及其判断，再汇总；最后写「证据：」，把待审正文里的原句一句一个「」括起来。不得删项、改写目标或自创编号。',
+      '结论只写这三个词之一：已完成、未完成、待核实。依次判断：',
       '1. 先按原意区分当章行动与背景/未来约束；仅当目标要求达成约定时，本章达成约定即可，不要求提前执行。背景、梗概里的意图、未来计划不是已发生事实，也不自动变成到期行动。',
-      '2. 当章到期行动有明确延期、拒绝或相反结果的正文证据 → unmet。准备/承诺不能代替要求现在完成的行动；部分完成不等于整项目标完成。',
-      '3. 全部到期动作有完成证据，或正文明确支持该项约束 → completed。',
-      '4. 仅未提及、无法判断或证据不足 → unknown，不能以「没写到」断言「没发生」。例如要求归还借书，正文只写走进图书馆：应 unknown，不能判 unmet。',
-      '最后汇总所有子动作：任一 unmet → unmet；否则任一 unknown → unknown；仅全部完成 → completed。不得用多数已完成掩盖一个延期或不明子动作。',
-      'completed/unmet 都须待审正文的逐字证据；unknown 可 evidence:[]。不拼接或改写引文，不引用计划证明行动；引文存在不证明推断成立。不检查字数或强求背景细节。',
-      `冻结清单：${frozenGoalsJson(goals)}`,
+      '2. 当章到期行动有明确延期、拒绝或相反结果的正文证据 → 未完成。准备/承诺不能代替要求现在完成的行动；部分完成不等于整项目标完成。',
+      '3. 全部到期动作有完成证据，或正文明确支持该项约束 → 已完成。',
+      '4. 仅未提及、无法判断或证据不足 → 待核实，不能以「没写到」断言「没发生」。例如要求归还借书，正文只写走进图书馆：应待核实，不能判未完成。',
+      '最后汇总所有子动作：任一未完成 → 未完成；否则任一待核实 → 待核实；仅全部完成 → 已完成。不得用多数已完成掩盖一个延期或不明子动作。',
+      '已完成、未完成都须待审正文的逐字证据；待核实可以写「证据：无」。不拼接或改写引文，不引用计划证明行动；引文存在不证明推断成立。不检查字数或强求背景细节。',
+      '冻结清单：',
+      frozenGoalsList(goals),
       ''
     );
   }
-  lines.push('只输出一个可由 JSON.parse 读取的 JSON 对象，不要 Markdown、代码围栏、解释或思考过程。');
+  lines.push(
+    '只写审稿报告本身：不要开场白、解释或思考过程，不用代码围栏，不写 JSON。',
+    '【格式示例】',
+    '### 总评',
+    '一句话总体评价',
+    '### 问题',
+    '- 剧情连贯性（通过）：未发现与前文矛盾',
+    '- 剧情合理性（严重）：问题描述。原文：「待审正文里的原句」',
+    '- 角色状态（建议）：轻微不一致说明。原文：「待审正文里的原句」',
+    '### 目标核对',
+    goals.length === 0 ? '无' : `- ${goals[0].id}（已完成）：逐个子动作的判断，再汇总。证据：「待审正文里的原句」`
+  );
   return lines.join('\n');
+}
+
+/**
+ * 审稿转写那一步的 JSON 合同（2026-10-25 起）：把审稿模型按 {@link reviewContract} 写的报告搬成原来那份
+ * `{"summary","items","goalReviews"}`，形状与 model/review.ts 的 `parseReviewJson` 认的一致。只说每个字段从哪里取、
+ * 中文词对到哪个代码，不说「审什么」；引文照抄，之后照旧由 `verifyReview` 拿正文核对。
+ */
+export function reviewJsonContract(): string {
+  return [
+    '【审稿报告 JSON 合同】',
+    '只输出 {"summary":"…","items":[…],"goalReviews":[…]}：',
+    '- summary：「总评」一节那一句。',
+    '- items：「问题」一节，一条一项 {"category":"…","severity":"…","quote":"…","description":"…"}：category 是括号前面的检查维度（没写给 ""）；severity 按括号里的严重、建议、通过依次给 error、warning、pass；description 是冒号后面的说明，不含「原文：」那一段；quote 是「原文：」后面「」里的那一句，不带「」，没写原文的给 ""。',
+    '- goalReviews：「目标核对」一节，一项一项 {"id":"…","status":"…","description":"…","evidence":["…"]}：id 是行首的编号（g1、g2……）；status 按括号里的已完成、未完成、待核实依次给 completed、unmet、unknown；description 是冒号后面的判断，不含「证据：」那一段；evidence 是「证据：」后面每一个「」里的那一句，一句一项，不带「」。',
+    '- 写「无」或没有这一节的：文字给 ""，列表给 []。',
+    '- 文字一律从原文照抄：不改写、不总结、不润色，不补原文没有的，也不删原文写了的；引文（quote、evidence）一个字都不能改。category、severity、id、status 这几样按上面的对应关系填。',
+    '只输出一个可由 JSON.parse 读取的 JSON 对象，不要解释、Markdown 或代码围栏。',
+    '【JSON 形状】{"summary":"…","items":[{"category":"剧情合理性","severity":"error","quote":"…","description":"…"},{"category":"剧情连贯性","severity":"pass","quote":"","description":"…"}],"goalReviews":[{"id":"g1","status":"completed","description":"…","evidence":["…"]}]}',
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------- 修稿

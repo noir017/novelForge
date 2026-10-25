@@ -14,6 +14,8 @@
  * 模型说的每一处冲突都要带两句原文：细纲里的那一句、事实里的那一条。两句都要在原文里找得到
  * （审稿引文那一套归一化：NFKC、去空白与标点），找不到的丢掉——这一步会让批量写章停下来，
  * 拿一条模型编出来的矛盾去拦作者，比漏掉一条更糟。
+ *
+ * 2026-10-25 起改成转写：比对的模型按格式写（两句原句用「」括出来），转写模型照抄成 JSON（{@link PLOT_CHECK_JSON_CONTRACT}）。
  */
 import { normalizeQuote } from './review';
 import { CONTEXT_DETAIL_LIMITS, DEFAULT_CONTEXT_DETAIL } from './contextDetail';
@@ -55,9 +57,41 @@ export const PLOT_CHECK_SYSTEM = [
   '4. 境界、身份、地点与事实相反且细纲没有交代变化（事实说已经突破到三层，细纲说还在二层；事实说已经离开宗门，细纲说他一直在宗门里）。',
   '风格、节奏、合不合理不归你管；细纲比事实多出来的新东西不算矛盾；拿不准的不报。',
   '',
-  '只输出 JSON：{"conflicts":[{"plot":"细纲里的原句","fact":"事实里的原句","chapter":事实所在章号,"why":"一句话说清哪里矛盾"}]}',
-  `没有矛盾就输出 {"conflicts":[]}。plot 与 fact 必须逐字摘自下面给的原文，最多 ${PLOT_CHECK_MAX} 处。`,
+  '按下面的格式写，不写 JSON：',
+  '- 没有矛盾就只写「无矛盾」三个字。',
+  `- 有矛盾的，一处一段，最多 ${PLOT_CHECK_MAX} 处；每段以「### 矛盾 N」开头，下面三行：「细纲：」后面是细纲里的原句，「事实：」后面是事实里的原句、括号里写它在第几章，「为什么：」后面一句话说清哪里矛盾。`,
+  '- 两句原句都用「」括起来，必须逐字摘自下面给的原文，不拼接、不改写。',
+  '【格式示例】',
+  '### 矛盾 1',
+  '细纲：「细纲里的原句」',
+  '事实：「事实里的原句」（第 N 章）',
+  '为什么：一句话说清哪里矛盾',
 ].join('\n');
+
+/**
+ * 转写那一步的 JSON 合同（2026-10-25 起）：把上面那份按格式写的结果搬成 `{"conflicts":[…]}`，形状与 features/plotCheck.ts
+ * 原来认的一致（`jsonList(raw, 'conflicts')` + {@link verifyConflicts}）。两句原句照抄，之后照旧拿细纲与事实逐字核对。
+ */
+export const PLOT_CHECK_JSON_CONTRACT = [
+  '【写前冲突检查 JSON 合同】',
+  '只输出 {"conflicts":[...]}，原文里的一段「矛盾」是一项 {"plot":"…","fact":"…","chapter":N,"why":"…"}：',
+  '- plot：「细纲：」后面「」里的那一句，不带「」；fact：「事实：」后面「」里的那一句，不带「」。',
+  '- chapter：事实那一句后面括号里的第几章（数字），没写给 0；why：「为什么：」后面那一句。',
+  '- 原文写「无矛盾」或一处都没写的：{"conflicts":[]}。',
+  '- 文字一律从原文照抄：不改写、不总结、不润色，不补原文没有的，也不删原文写了的；两句原句一个字都不能改。chapter 按上面的对应关系填。',
+  '只输出一个可由 JSON.parse 读取的 JSON 对象，不要解释、Markdown 或代码围栏。',
+  '【JSON 形状】{"conflicts":[{"plot":"…","fact":"…","chapter":10,"why":"…"}]}',
+].join('\n');
+
+/** 只写了「无矛盾」（或「无」「没有矛盾」）：一处都没有，不必转写。 */
+export function saysNoConflict(source: string): boolean {
+  return /^[#*\s]*(?:无|没有)(?:硬)?(?:矛盾)?[。.！!]?[*\s]*$/u.test(source.trim());
+}
+
+/** 有没有冲突检查的样子：提到矛盾、细纲、事实，或括了原句。连这都没有的（「我不太确定」）不花转写那一次。 */
+export function looksLikePlotCheck(source: string): boolean {
+  return /矛盾|细纲|事实|「/u.test(source);
+}
 
 /**
  * 选哪些事实：提到本章计划出场的人的事实（不论多早），加上最近 `limits.recent` 章的全部事实；
@@ -103,7 +137,7 @@ export function plotCheckUser(plot: { no: number; title: string; text: string },
   const factBlock = facts
     .map((c) => `【第${c.no}章${c.title ? ` ${c.title}` : ''}】\n${c.statements.map((s) => `- ${s}`).join('\n')}`)
     .join('\n\n');
-  return `# 前面各章定稿的连续性事实\n\n${factBlock}\n\n# 本章细纲（第${plot.no}章${plot.title ? ` ${plot.title}` : ''}）\n\n${plot.text}\n\n请按要求输出 JSON。`;
+  return `# 前面各章定稿的连续性事实\n\n${factBlock}\n\n# 本章细纲（第${plot.no}章${plot.title ? ` ${plot.title}` : ''}）\n\n${plot.text}\n\n请按要求的格式写。`;
 }
 
 /**

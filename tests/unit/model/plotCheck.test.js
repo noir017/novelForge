@@ -85,4 +85,25 @@ describe('plotCheck · 校验冲突', () => {
     assert.match(user, /【第10章】\n- 钱执事已被大阵吞噬，尸骨无存/);
     assert.match(user, /# 本章细纲（第26章 执事之死）/);
   });
+
+  // 2026-10-25 起改成转写：比对的模型按格式写，JSON 由转写模型照抄（合同在 PLOT_CHECK_JSON_CONTRACT）。
+  test('写的那一次不要 JSON：按格式写，两句原句用「」括起来，最多 5 处', () => {
+    assert.doesNotMatch(m.PLOT_CHECK_SYSTEM, /\{"conflicts"|只输出 JSON/);
+    assert.match(m.PLOT_CHECK_SYSTEM, /不写 JSON/);
+    assert.match(m.PLOT_CHECK_SYSTEM, /没有矛盾就只写「无矛盾」/);
+    assert.match(m.PLOT_CHECK_SYSTEM, /两句原句都用「」括起来，必须逐字摘自下面给的原文/);
+    assert.match(m.PLOT_CHECK_SYSTEM, new RegExp(`最多 ${m.PLOT_CHECK_MAX} 处`));
+    assert.doesNotMatch(m.plotCheckUser({ no: 26, title: '', text: plot }, facts), /JSON/);
+    assert.match(m.PLOT_CHECK_JSON_CONTRACT, /\{"conflicts":\[/);
+  });
+
+  test('只写了「无矛盾」不必转写；连矛盾、细纲、事实都不提的不像比对结果', () => {
+    for (const s of ['无矛盾', '无矛盾。', '**无矛盾**', '没有硬矛盾', '无']) {
+      assert.equal(m.saysNoConflict(s), true, s);
+    }
+    assert.equal(m.saysNoConflict('### 矛盾 1\n细纲：「钱执事在惊恐中毙命」'), false);
+    assert.equal(m.saysNoConflict('无矛盾，但细纲里「钱执事在惊恐中毙命」要留意'), false);
+    assert.equal(m.looksLikePlotCheck('### 矛盾 1\n细纲：「钱执事在惊恐中毙命」'), true);
+    assert.equal(m.looksLikePlotCheck('我不太确定。'), false);
+  });
 });

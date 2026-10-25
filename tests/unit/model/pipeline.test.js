@@ -170,8 +170,15 @@ describe('pipeline.ts · Stage × Capability', () => {
     assert.equal(pipeline.outputKindOf({ stage: 'manuscript', capability: 'review' }), 'report');
   });
 
-  test('审稿与修稿的调用次数', () => {
-    assert.equal(pipeline.describeCalls(pipeline.REVIEW_CALLS), '预计 1 次调用，最多 3 次（输出被截断或不合格时重来，最多再 2 次）');
+  test('审稿、写前比对与修稿的调用次数（审稿与比对 2026-10-25 起多一次转写）', () => {
+    assert.equal(
+      pipeline.describeCalls(pipeline.REVIEW_CALLS),
+      '预计 2 次调用，最多 7 次（审 1 次、转写模型照抄成 JSON 1 次；被截断或不合格时重来，审最多再 2 次，转写不合格各重转 1 次）'
+    );
+    assert.equal(
+      pipeline.describeCalls(pipeline.PLOT_CHECK_CALLS),
+      '预计 0–2 次调用，最多 3 次（前面有同步过的章时，写之前比对一次细纲与既成事实、转写模型照抄成 JSON 1 次（没有矛盾不转）；转写不合格重转 1 次）'
+    );
     assert.equal(pipeline.describeCalls(pipeline.REVISE_CALLS), '预计 1 次调用，最多 4 次（被输出上限截断时接着写，最多再续 3 轮）');
     assert.equal(pipeline.isWriteMode('revise'), true);
   });
@@ -1162,27 +1169,28 @@ describe('pipeline.ts · 写正文的写法', () => {
 describe('pipeline.ts · 批量写章的切分', () => {
   const base = { mode: 'draft', writtenNos: [], plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] };
 
-  test('只写正文：一章 1–2 次、最多 9 次，加写前比对 0–1 次、最多 2 次，按件加总', () => {
+  // 写前比对 2026-10-25 起多一次转写：比对 1 次、转写 1 次、重转 1 次。
+  test('只写正文：一章 1–2 次、最多 9 次，加写前比对 0–2 次、最多 3 次，按件加总', () => {
     const plan = pipeline.planWriteBatch({ ...base, from: 1, to: 3 });
     assert.deepEqual(plan.chapters, [1, 2, 3]);
     assert.deepEqual(plan.plotBatches, []);
-    assert.deepEqual(plan.calls, { low: 3, high: 9, max: 33 });
+    assert.deepEqual(plan.calls, { low: 3, high: 12, max: 36 });
   });
 
   test('写完即定稿：每章再加定稿的 3–6 次', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 12, high: 27, max: 51 });
+    assert.deepEqual(plan.calls, { low: 12, high: 30, max: 54 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
 
-  // 五期补遗 §4：审稿一章 1 次、最多 3 次，与定稿各算各的。
-  test('写完即审稿：每章再加审稿的 1 次（最多 3 次）；与定稿叠加', () => {
+  // 五期补遗 §4：审稿与定稿各算各的。2026-10-25 起审稿多一次转写：一章 2 次、最多 7 次（审 3 次、转写 4 次）。
+  test('写完即审稿：每章再加审稿的 2 次（最多 7 次）；与定稿叠加', () => {
     const plan = pipeline.planWriteBatch({ ...base, review: true, from: 1, to: 3 });
     assert.equal(plan.review, true);
-    assert.deepEqual(plan.calls, { low: 6, high: 12, max: 42 });
+    assert.deepEqual(plan.calls, { low: 9, high: 18, max: 57 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 15, high: 30, max: 60 });
+    assert.deepEqual(both.calls, { low: 18, high: 36, max: 75 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

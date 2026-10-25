@@ -6,7 +6,7 @@
  * | 审稿一次成功 | 1 次调用；Draft 带报告、**没有 artifact**；气泡是给人读的报告，不是 JSON |
  * | 伪造的引文 | 那一条被丢掉，notes 写明 |
  * | 审稿被截断 | 整份重来一次，重来那次说明上一次被丢弃 |
- * | 审稿不合格 | 按合同重建一次；两次都不行报错、不出报告 |
+ * | 审稿不合格 | 没按格式写、自己给的 JSON 不合格：不转写，按格式重写一次；两次都不行报错、不出报告 |
  * | 还没有正文 | 不调模型，报错 |
  * | 审稿不走续写链 | 审稿 JSON 不会被当成正文续写、查重演 |
  * | 修稿一次成功 | 发出去的有整章原文与清单；Draft 是正文产物、写法 revise |
@@ -191,9 +191,7 @@ describe('审稿 · 一次成功', () => {
 
   test('冻结清单只有关键事件那三条，看点里的章末悬念不进', () => {
     assert.ok(
-      r.users[0].includes(
-        '冻结清单：[{"id":"g1","text":"林昭回到客栈"},{"id":"g2","text":"林昭当晚离开青崖镇"},{"id":"g3","text":"李叔来客栈找林昭"}]'
-      ),
+      r.users[0].includes('冻结清单：\n- g1：林昭回到客栈\n- g2：林昭当晚离开青崖镇\n- g3：李叔来客栈找林昭\n'),
       r.users[0].slice(r.users[0].indexOf('冻结清单'), r.users[0].indexOf('冻结清单') + 200)
     );
   });
@@ -208,10 +206,18 @@ describe('审稿 · 出岔子', () => {
     assert.match(r.draft.notes.join(), /整份重来一次/);
   });
 
-  test('不合格：按合同重建一次', async () => {
+  // 2026-10-25 起改成转写：连「总评」「目标核对」都没有的不花转写那一次，直接按格式重写。
+  test('没按格式写：不转写，按格式重写一次', async () => {
     const r = await review(['这一章写得挺好，没有问题。', { text: reviewJson(), stop: 'end' }]);
     assert.equal(r.calls, 2);
-    assert.match(r.users[1], /未通过合同校验（输出里没有 JSON 对象）/);
+    assert.match(r.users[1], /未通过格式校验（没有按格式写）/);
+    assert.ok(r.draft.review);
+  });
+
+  test('模型自己给的 JSON 不合格：不转写，按格式重写一次', async () => {
+    const r = await review(['{"summary":"缺了 items"}', { text: reviewJson(), stop: 'end' }]);
+    assert.equal(r.calls, 2);
+    assert.match(r.users[1], /未通过格式校验（缺少 items 数组）/);
     assert.ok(r.draft.review);
   });
 
