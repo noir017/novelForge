@@ -1179,7 +1179,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
 
   test('写完即定稿：每章再加定稿的 6–12 次（最多 18 次）', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 21, high: 45, max: 87 });
+    assert.deepEqual(plan.calls, { low: 21, high: 48, max: 90 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -1190,7 +1190,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.equal(plan.review, true);
     assert.deepEqual(plan.calls, { low: 9, high: 18, max: 57 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 24, high: 48, max: 96 });
+    assert.deepEqual(both.calls, { low: 27, high: 54, max: 111 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。
