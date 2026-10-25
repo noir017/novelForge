@@ -4,6 +4,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 本章细纲「设定」一节点名的整条带，关键词命中的也整条带 | 写这一章最用得上的就是这几条 |
+ * | 关键词命中按最长匹配：「圣地秘境」里的「秘境」不算 | 上位概念不挤掉具体那几条的整条名额 |
  * | 前几章定稿出现过的只带一句话 | 够提醒有这个东西，不挤预算 |
  * | 整条后面跟水位之后的新事实（只到本章之前） | 条目落后于正文时模型照样拿得到新的那几句 |
  * | 条目整合到本章或更晚时 note 提醒可能剧透 | 回头重写前面的章时，条目里有之后的事 |
@@ -317,6 +318,32 @@ describe('排细纲 · 写到后面', () => {
         ['设定 · 街市', '已有设定（出现 5 章）'],
       ]
     );
+  });
+});
+
+// 2026-10-25 外部报告：「圣地秘境」一出现，汇总了各个秘境规则的「秘境」那一条就整条带进来，挤掉具体那几条。
+describe('关键词命中 · 最长匹配', () => {
+  let p;
+  before(async () => {
+    p = await makeTempProject(bundle.project, { prefix: 'loreLayerLongest', title: '最长匹配' });
+    p.write('.novelforge/lore/概念/秘境.md', entry('秘境', { brief: '各处秘境的统称', body: '幻池：水下不能开口。心枝：时间流速 22:90。' }));
+    p.write('.novelforge/lore/秘境/圣地秘境.md', entry('圣地秘境', { brief: '教派的据点', body: '外人进不去。' }));
+    p.project.invalidate();
+  });
+  after(() => {
+    if (p) cleanup(p.dir);
+  });
+
+  const ask = (text) =>
+    bundle.builder.buildContext(p.project, { action: PLAN, target: { kind: 'plot', plotRelPath: PLOT(1) }, ask: text }, config(3));
+  const full = (b) => loreItems(b).filter((i) => i.text.startsWith('【')).map((i) => [i.label, i.note]);
+
+  test('「圣地秘境」里的「秘境」不算提到上位概念；单独说「秘境」照样整条带', async () => {
+    assert.deepEqual(full(await ask('这一章主角随教众潜入圣地秘境')), [['设定 · 圣地秘境', '上下文中出现「圣地秘境」']]);
+    assert.deepEqual(full(await ask('圣地秘境也守秘境的规矩')), [
+      ['设定 · 秘境', '上下文中出现「秘境」'],
+      ['设定 · 圣地秘境', '上下文中出现「圣地秘境」'],
+    ]);
   });
 });
 

@@ -6,6 +6,7 @@
  * | 只认定稿过的细纲 | 没定稿的「设定」一节是计划，混进来会污染统计（第 14 条同理） |
  * | 标题先于关键词认条目 | 关键词抢不走别人的标题 |
  * | 水位之后的「设定」一节说明与连续性事实才算待整合 | 整合过的不再催；状态的变化记在连续性事实里 |
+ * | 连续性事实认条目按最长匹配：落在别人更长的名字里的不算 | 上位概念不再把各个具体东西的事并进自己 |
  * | 人名不是设定 | 模型偶尔把人列进「设定」一节 |
  * | 未建条目按出现章数降序，分类取多数票 | 作者要建的多半是出现得多的 |
  * | 没有「设定」一节的定稿章计入「还没记过」 | 老工程上线后要补记的就是这几章 |
@@ -108,6 +109,32 @@ describe('已建条目', () => {
     assert.equal(bundle.lore.pendingChapters(record('青崖镇')), 1);
     // 没整合过（没有水位）的条目，从第 1 章算起。
     assert.deepEqual(record('崖字令牌').pending, [{ no: 3, text: '林昭的令牌被年轻守卫看见', source: 'fact' }]);
+  });
+});
+
+// 2026-10-25 外部报告：「秘境」那一条整合成了各个秘境的汇总——带这两个字的连续性事实从前都挂到它名下。
+describe('待整合 · 最长匹配', () => {
+  let p;
+  before(async () => {
+    p = await makeTempProject(bundle.project, { prefix: 'loreindexLongest' });
+    p.write('.novelforge/lore/概念/秘境.md', '---\ntitle: 秘境\nkeywords: []\n---\n\n# 秘境\n\n各处秘境。\n');
+    p.write('.novelforge/lore/秘境/心枝.md', '---\ntitle: 心枝\nkeywords: [心枝秘境]\nupdatedThrough: 1\n---\n\n# 心枝\n\n时间流速不同。\n');
+    p.write(
+      '.novelforge/summaries/001-入池.md',
+      plot(1, '入池', { lore: '- 幻池秘境〔秘境〕：水下不能开口', facts: '- 幻池秘境里水下不能开口\n- 心枝秘境与外界时间流速 22:90' })
+    );
+    p.write('.novelforge/summaries/002-湖底.md', plot(2, '湖底', { lore: '- 秘境', facts: '- 秘境的入口都在湖底\n- 心枝秘境的时间又变快了' }));
+  });
+  after(() => {
+    if (p) cleanup(p.dir);
+  });
+
+  test('落在别的条目、名录里另记着的名字里的不算；水位之内的条目照样算别人的名字，只是不收', async () => {
+    const idx = await bundle.lore.buildLoreIndex(p.project);
+    const pending = (title) => idx.known.find((r) => r.entry.title === title).pending.map((f) => `${f.no}:${f.text}`);
+    // 「幻池秘境」还没建条目（名录里记着），「心枝秘境」是「心枝」的关键词——这两句都不归「秘境」。
+    assert.deepEqual(pending('秘境'), ['2:秘境的入口都在湖底']);
+    assert.deepEqual(pending('心枝'), ['2:心枝秘境的时间又变快了']);
   });
 });
 

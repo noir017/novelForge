@@ -5,7 +5,7 @@ import { ContinuityFact, locateEvidence, parseContinuityFacts } from '../../mode
 import { ContextThread, ThreadBook, fitThreads, manuscriptThreads, plotThreads, reviewForeshadowing } from '../../model/threadFile';
 import { STORY_TIME_LABEL, timeContextText } from '../../model/timelineFile';
 import { CharacterCard, LoreEntry } from '../../model/types';
-import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionIn } from '../../model/loreFile';
+import { LORE_ENTRY_LIMITS, LORE_SETTLE_LIMITS, createLoreLookup, loreMentionsIn } from '../../model/loreFile';
 import { LoreFact, LoreRecord, buildLoreIndex } from '../../views/lore';
 import { expansionMaterial, loreEntryAt } from '../../views/loreMaterial';
 import { ContextItem } from '../types';
@@ -131,7 +131,8 @@ export const characters: LayerFn = async (a, spec) => {
  *
  * 顺位：
  * - R0 本章细纲「设定」一节点名的（没定稿是计划，定稿过是实际）——整条；
- * - R1 关键词命中：作者这次的话 + 本章细纲（接着写时再加本章已写的末尾）——整条；
+ * - R1 关键词命中：作者这次的话 + 本章细纲（接着写时再加本章已写的末尾）——整条；最长匹配，被别人更长的名字包住的不算
+ *   （{@link loreMentionsIn}）；
  * - R2 前几章（`castSummaries` 章）定稿细纲「设定」一节出现过的——一行；
  * - R3 只在大纲、细纲阶段：其余条目一行一条，让规划时照抄已有的名字，不另起一个。近几章出现过的在前（{@link catalogOrder}）。
  *
@@ -227,12 +228,13 @@ export const lore: LayerFn = async (a, spec) => {
     await chapterTailText(a),
     ...(self ? [selfText(self.entry), ...(await expansionMaterial(a.project, self.entry, { entries })).uses.map((u) => u.text)] : []),
   ];
+  // 最长匹配（2026-10-25）：一个词每一处都落在别人更长的名字里就不算——「圣地秘境」里的「秘境」不把上位概念整条带进来。
+  // 别人的名字再加名录里记着、还没建条目的与本章细纲「设定」一节点的。展开一条时它自己不算别人的名字：上位概念照样命中。
+  const names = [...index.unknown.map((u) => u.name), ...(a.focus.plot?.lore ?? []).map((l) => l.name)];
+  const candidates = selfPath ? entries.filter((e) => e.relPath !== selfPath) : entries;
   for (const haystack of haystacks) {
-    for (const entry of entries) {
-      const hit = loreMentionIn(haystack, entry);
-      if (hit) {
-        pick(entry, true, discussed.includes(haystack) ? `讨论里提到「${hit}」` : `上下文中出现「${hit}」`);
-      }
+    for (const [entry, hit] of loreMentionsIn(haystack, candidates, names)) {
+      pick(entry, true, discussed.includes(haystack) ? `讨论里提到「${hit}」` : `上下文中出现「${hit}」`);
     }
   }
   // 展开一条时同一个分类目录里的一行带：拆子条目、写规则时看得见旁边已经有什么。根目录（未分类）不算一类。

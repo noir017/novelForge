@@ -303,7 +303,8 @@ export function createLoreLookup(entries: readonly LoreEntry[]): LoreLookup {
 
 /**
  * 一段文字有没有提到这个条目：标题或任一关键词（至少两个字）作为子串出现，不分大小写。
- * 返回命中的那个词，没提到是 undefined。连续性事实认条目、上下文关键词命中都用它。
+ * 返回命中的那个词，没提到是 undefined。展开一条设定找用到它的句子、记设定时挑已有条目用它；连续性事实认条目、
+ * 上下文关键词命中要看别的名字，用 {@link loreMentionsIn}。
  */
 export function loreMentionIn(text: string, entry: Pick<LoreEntry, 'title' | 'keywords'>): string | undefined {
   const haystack = (text ?? '').toLocaleLowerCase('zh-Hans-CN');
@@ -314,6 +315,60 @@ export function loreMentionIn(text: string, entry: Pick<LoreEntry, 'title' | 'ke
     }
   }
   return undefined;
+}
+
+/**
+ * 一段文字提到了哪几个条目，**最长匹配**（2026-10-25）：与 {@link loreMentionIn} 一样按标题或关键词（至少两个字）认，
+ * 但一个词**每一处**都落在一个更长的别人的名字里时不算——「潜入圣地秘境」里的「秘境」不算提到「秘境」那一条，
+ * 「这个秘境」「秘境的规矩」照算。别人的名字是别的条目的标题与关键词，再加 `names`（名录里记着、还没建条目的名字，
+ * 本章细纲「设定」一节点的名字）。
+ *
+ * 从前一律按子串认：写到后面，上位概念（「秘境」「魔法」）一提具体的东西就整条进上下文，挤掉具体那几条；整合时
+ * 连续性事实只要带这两个字就挂到上位概念名下，各个具体秘境的规则一条条并进去。装配器的关键词命中、名录认连续性事实
+ * 用它；返回条目 → 命中的那个词，按 `entries` 的顺序。
+ */
+export function loreMentionsIn<T extends Pick<LoreEntry, 'title' | 'keywords'>>(
+  text: string,
+  entries: readonly T[],
+  names: readonly string[] = []
+): Map<T, string> {
+  const out = new Map<T, string>();
+  const haystack = (text ?? '').toLocaleLowerCase('zh-Hans-CN');
+  if (!haystack.trim()) {
+    return out;
+  }
+  /** 文字里每一处名字：从哪到哪、是哪一条的（名录里另记着的名字没有 `owner`）。 */
+  const spans: { start: number; end: number; owner?: T; word: string }[] = [];
+  const find = (word: string, owner?: T): void => {
+    const w = (word ?? '').trim();
+    if (w.length < 2) {
+      return;
+    }
+    const key = w.toLocaleLowerCase('zh-Hans-CN');
+    for (let at = haystack.indexOf(key); at >= 0; at = haystack.indexOf(key, at + 1)) {
+      spans.push({ start: at, end: at + key.length, owner, word: w });
+    }
+  };
+  for (const entry of entries) {
+    for (const word of [entry.title, ...entry.keywords]) {
+      find(word, entry);
+    }
+  }
+  for (const name of names) {
+    find(name);
+  }
+  const covered = (s: (typeof spans)[number]): boolean =>
+    spans.some((o) => o.owner !== s.owner && o.end - o.start > s.end - s.start && o.start <= s.start && s.end <= o.end);
+  for (const entry of entries) {
+    for (const word of [entry.title, ...entry.keywords]) {
+      const w = (word ?? '').trim();
+      if (spans.some((s) => s.owner === entry && s.word === w && !covered(s))) {
+        out.set(entry, w);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /**

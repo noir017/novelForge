@@ -1,7 +1,7 @@
 import { NovelProject } from '../model/project';
 import { Plot } from '../model/plotFile';
 import { parseContinuityFacts } from '../model/continuity';
-import { LoreThinKind, createLoreLookup, loreMentionIn, loreThin, normalizeLoreName } from '../model/loreFile';
+import { LoreThinKind, createLoreLookup, loreMentionsIn, loreThin, normalizeLoreName } from '../model/loreFile';
 import { CharacterCard, LoreEntry } from '../model/types';
 import { normalizeName } from '../model/naming';
 import { finalizedPlots } from './cast';
@@ -177,21 +177,23 @@ export async function buildLoreIndex(
         group.notes.push({ no: plot.no, text: line.note, source: 'lore' });
       }
     }
-    // 连续性事实里提到的：状态的变化记在那里。只认水位之后的章。
-    if (!withPending) {
-      continue;
-    }
-    const facts = parseContinuityFacts(plot.sections.连续性事实);
-    if (facts.length === 0) {
-      continue;
-    }
-    for (const entry of entries) {
-      if (plot.no <= watermark(entry)) {
+  }
+
+  // 连续性事实里提到的：状态的变化记在那里。只认水位之后的章。最长匹配（2026-10-25，`loreMentionsIn`）：「幻池秘境」里的
+  // 「秘境」不算提到「秘境」那一条——从前子串就算，各个具体秘境的事都挂到上位概念名下，整合时一条条并进去。别人的名字
+  // 再加名录里记着、还没建条目的，所以等「设定」一节都认完再认；水位之内的条目照样算别人的名字，只是不收。
+  if (withPending && entries.length > 0) {
+    const names = [...unfiled.values()].flatMap((g) => [...g.names.keys()]);
+    const lowest = Math.min(...entries.map(watermark));
+    for (const plot of finalized) {
+      if (plot.no <= lowest) {
         continue;
       }
-      for (const fact of facts) {
-        if (loreMentionIn(fact.statement, entry)) {
-          addPending(entry, { no: plot.no, text: fact.statement, source: 'fact' });
+      for (const fact of parseContinuityFacts(plot.sections.连续性事实)) {
+        for (const entry of loreMentionsIn(fact.statement, entries, names).keys()) {
+          if (plot.no > watermark(entry)) {
+            addPending(entry, { no: plot.no, text: fact.statement, source: 'fact' });
+          }
         }
       }
     }

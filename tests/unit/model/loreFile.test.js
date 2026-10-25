@@ -9,6 +9,7 @@
  * | 「设定」一节不进内容指纹 | 补记老章节不能把它们全挂上 ⟳ |
  * | 没有这一节是 undefined，有标题没内容是空数组 | 「还没记过」与「记过、没有」是两回事 |
  * | 两趟认条目：关键词抢不走别人的标题 | 同 views/cast.ts 的角色卡 |
+ * | 认提到：最长匹配，落在别人更长的名字里的不算 | 「圣地秘境」不该把上位概念「秘境」整条带进来 |
  * | 「暗设」一节拆得出来，一句话不取它 | 写正文时不带暗设（完善设定） |
  * | 待完善只认空的、占位、全是「（未交代）」 | 不按字数猜：作者写了两行就是够了 |
  */
@@ -140,6 +141,28 @@ describe('条目的一句话与认名字（含暗设与待完善：完善设定�
     const entry = { title: '崖字令牌', keywords: ['令牌', '牌'] };
     assert.equal(lf.loreMentionIn('林昭把令牌交了出去', entry), '令牌');
     assert.equal(lf.loreMentionIn('门牌上写着字', entry), undefined);
+  });
+
+  // 2026-10-25 外部报告：写到第 83 章，「圣地秘境」一出现「秘境」那一条（各个秘境的汇总）就整条进上下文。
+  test('最长匹配：每一处都落在别人更长的名字里的不算；单独出现的照算', () => {
+    const concept = { title: '秘境', keywords: [] };
+    const holy = { title: '圣地秘境', keywords: ['圣地'] };
+    const magic = { title: '魔法', keywords: ['法术'] };
+    const all = [concept, holy, magic];
+    const hits = (text, names) => [...lf.loreMentionsIn(text, all, names)].map(([e, w]) => `${e.title}:${w}`);
+    assert.deepEqual(hits('主角随教众潜入圣地秘境'), ['圣地秘境:圣地秘境']);
+    assert.deepEqual(hits('圣地秘境和别的秘境不一样'), ['秘境:秘境', '圣地秘境:圣地秘境']);
+    assert.deepEqual(hits('她在练习魔法'), ['魔法:魔法']);
+    // 名录里记着、还没建条目的名字也算别人的名字。
+    assert.deepEqual(hits('幻池秘境里不能开口', []), ['秘境:秘境']);
+    assert.deepEqual(hits('幻池秘境里不能开口', ['幻池秘境']), []);
+    // 一样长的不算包住；自己更长的关键词包住自己的标题照算自己。
+    assert.deepEqual(hits('秘境', ['秘境']), ['秘境:秘境']);
+    const gate = { title: '秘境', keywords: ['秘境入口'] };
+    assert.deepEqual([...lf.loreMentionsIn('走到秘境入口', [gate]).values()], ['秘境']);
+    // 一个字的不认，空文本什么都没有。
+    assert.equal(lf.loreMentionsIn('', all).size, 0);
+    assert.equal(lf.loreMentionsIn('牌', [{ title: '牌', keywords: [] }]).size, 0);
   });
 
   // 真跑（2026-10-18，gemini-3-flash-lite）：「伪人」的关键词里有人名「沈怀山」，「青羊镇」与「沈家老宅」
