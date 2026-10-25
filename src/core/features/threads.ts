@@ -430,38 +430,6 @@ export interface StepOpts {
   transcribe?: TranscribeCall;
 }
 
-/** 调一次模型、取回 JSON 对象。解析不出来抛错（`what` 写进错误里）。认故事时间（features/storyTime.ts）也用它。 */
-export async function askJsonObject(opts: StepOpts, label: string, system: string, user: string, temperature: number, what: string): Promise<Record<string, unknown>> {
-  const config = readConfig();
-  const options: StreamOptions = {
-    maxOutputTokens: opts.budget.maxOutputTokens,
-    temperature,
-    timeoutMs: config.requestTimeoutMs,
-    signal: opts.signal,
-  };
-  const raw = await opts.run(label, (llm) =>
-    collectText(
-      llm.stream(
-        [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        options
-      )
-    )
-  );
-  const json = extractJsonObject(stripCodeFence(raw));
-  try {
-    const value: unknown = json ? JSON.parse(stripTrailingCommas(json)) : undefined;
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return value as Record<string, unknown>;
-    }
-  } catch {
-    // 落到下面那一句。
-  }
-  throw new Error(`模型返回的${what}解析不出来`);
-}
-
 // ---------------------------------------------------------------- 转写（2026-10-25 起）
 
 /** 叙事线那几次里的一次转写：{@link TranscribeSpec} 之外，原文全是「无」时交回什么、原文写了几条转写却一条没有怎么认。 */
@@ -564,7 +532,7 @@ async function askTranscribed<T>(opts: StepOpts, step: TranscribedStep<T>): Prom
   };
 }
 
-/** 吃 JSON 文本、交回一个对象：与 {@link askJsonObject} 同一个宽松取法（剥围栏、取最外层对象、去多余的逗号）。 */
+/** 吃 JSON 文本、交回一个对象：宽松取法（剥围栏、取最外层对象、去多余的逗号）。 */
 function decodeObject(json: string): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
   const text = extractJsonObject(stripCodeFence(json));
   try {

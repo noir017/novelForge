@@ -1,12 +1,12 @@
 /**
- * 结构化产物的解码：细纲批次、角色图谱两段式、小说配置，以及语法修复的证据校验。
+ * 结构化产物的解码：细纲批次、角色图谱两段式、小说配置，以及转写要的取 JSON 与「出自原文」比对。
  *
  * 全部是纯函数（features/structuredJson.ts、blueprint.ts、roster.ts、novelConfig.ts），
  * 生成链怎么用它们在 tests/integration/generation/structuredChain.test.js。
  *
  * | 用例组 | 钉的是什么 |
  * |---|---|
- * | 语法修复证据 | 修过的那份只许补闭合括号、改标点；改一个字就拒收（不许借修复补造事实） |
+ * | 取 JSON | 看起来是 JSON 却解析不了的认得出（转写照转）；「唯一一个完整对象」：两个就说不清哪个是答案 |
  * | 转写有没有照抄 | 细纲试点：转写的每段文字都得出自原文，去掉列表记号、并条拆条、换引号不算改；「无」换成空的 |
  * | 细纲批次 | 缺必填字段报诊断（交给拆半 / 紧凑重建）；可以空着的四个字段宽松收；超长截断不作废；新角色必须在出场名单里；关键事件是一条一件事的数组，给成一段字按换行与分号切 |
  * | 角色图谱 | 清单里关系不闭合、没标主角照收并说明；详情以冻结清单为准；关系由清单生成到双方卡上 |
@@ -38,38 +38,12 @@ const item = (no, over = {}) => ({
   ...over,
 });
 
-describe('structuredJson.ts · 语法修复的证据校验', () => {
-  test('看起来是 JSON 却解析不了，才值得修', () => {
+describe('structuredJson.ts · 取 JSON', () => {
+  test('看起来是 JSON 却解析不了的认得出（转写照转，不当成「不像这一步的输出」）', () => {
     assert.equal(J.isRepairableJsonSyntax('{"a": 1,}'), true);
     assert.equal(J.isRepairableJsonSyntax('```json\n{"a": [1, 2}\n```'), true);
     assert.equal(J.isRepairableJsonSyntax('{"a": 1}'), false);
     assert.equal(J.isRepairableJsonSyntax('好的，这是细纲：{"a": 1'), false);
-  });
-
-  test('只补闭合括号、删多余逗号：通过', () => {
-    assert.equal(J.preservesJsonEvidence('{"a": [1, "x"', '{"a": [1, "x"]}'), true);
-    assert.equal(J.preservesJsonEvidence('{"a": 1,}', '{"a": 1}'), true);
-  });
-
-  // 复跑报告问题 7（rerun-repro.js 第 2 段）：拆细纲时模型在结尾多写了一个 `]`，修复只删了它，却被判成改了内容、整批拒收。
-  test('只动了最后一个值后面那一串收尾括号（多删少补、换一个）：通过；中间的括号动了照旧拒收', () => {
-    const bad = '{"blueprints":[{"chapterNumber":13,"title":"甲","threads":[{"line":"主线","type":"推进","what":"乙"}]}]]}';
-    const fixed = '{"blueprints":[{"chapterNumber":13,"title":"甲","threads":[{"line":"主线","type":"推进","what":"乙"}]}]}';
-    assert.equal(J.preservesJsonEvidence(bad, fixed), true);
-    assert.equal(J.preservesJsonEvidence('{"a": [{"b": 1}}', '{"a": [{"b": 1}]}'), true);
-    assert.equal(J.preservesJsonEvidence('{"a": [{"b": 1}]]]}', '{"a": [{"b": 1}]}'), true);
-    // 最后一个值之前的括号动了：哪个值属于哪个对象可能变了，不认。
-    assert.equal(J.preservesJsonEvidence('{"a": [1]], "b": 2}', '{"a": [1], "b": 2}'), false);
-    assert.equal(J.preservesJsonEvidence('{"a": [1]], "b": 2}', '{"a": [1, "b", 2]}'), false);
-    // 尾巴上动了括号，值却改了：照旧拒收。
-    assert.equal(J.preservesJsonEvidence(bad, fixed.replace('乙', '丙')), false);
-  });
-
-  test('改了一个字、补了一个值、调了顺序：一律拒收', () => {
-    assert.equal(J.preservesJsonEvidence('{"a": "林昭"', '{"a": "林照"}'), false);
-    assert.equal(J.preservesJsonEvidence('{"a": 1', '{"a": 1, "b": 2}'), false);
-    assert.equal(J.preservesJsonEvidence('{"a": 1, "b": 2', '{"b": 2, "a": 1}'), false);
-    assert.equal(J.preservesJsonEvidence('{"a": 1', '{"a": 1'), false);
   });
 
   test('唯一一个完整对象：两个就说不清哪个是答案', () => {

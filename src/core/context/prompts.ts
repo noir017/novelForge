@@ -713,9 +713,9 @@ function span(from: number, to: number): string {
 /**
  * 输出契约：附在 user 消息末尾的那段「现在请你产出什么」。
  *
- * 结构化产物一律要求 JSON。解析侧必须能降级（JSON → Markdown 小节 → 全文），
- * 与定稿同一套——模型不听话是常态，而解析失败等于这一次生成白花钱。细纲例外（2026-10-25 试点）：
- * 按小标题写自然语言，JSON 由转写模型照抄（{@link blueprintFormat}）。
+ * 结构化产物（2026-10-25 起）一律按格式写自然语言，不要 JSON：转写那一档的模型照抄成程序要的 JSON
+ * （features/transcribe.ts；细纲见 {@link blueprintFormat}）。作者实测要模型直接出 JSON 写出来的东西明显更差，还容易
+ * 因为少一个引号整批作废。解析侧照旧能降级——模型不听话是常态，而解析失败等于这一次生成白花钱。
  */
 export function buildOutputContract(action: CreationAction, facts: PromptFacts = {}): string {
   if (outputKindOf(action) === 'text') {

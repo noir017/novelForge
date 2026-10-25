@@ -5,7 +5,8 @@ import { LORE_ENTRY_LIMITS, LORE_HIDDEN_KEY } from '../model/loreFile';
  * 单独记设定（{@link LORE_RECORD_SYSTEM}）一字不差地共用：同一节、同一个口径，两条路记出来的才能放在一起统计。
  *
  * 2026-10-25 起记设定改成转写：字段名换成中文说法（名字、分类、说明），「给 ""」「给 []」换成「不写」「不列」——
- * 不管这一步是按格式写还是出 JSON 都说得通（定稿那一步 JSON 里对应 name、category、fact）。
+ * 不管这一步怎么写都说得通：定稿那一步一条一行「- 名字〔分类〕：说明」（features/summarizePrompt.ts），单独记设定是
+「- 名字（分类）：说明」，转写成 JSON 都对应 name、category、fact。
  *
  * 用户消息里另给「本书的设定分类」与「已有设定」（features/loreRecord.ts 的 `loreHint`）。
  */
