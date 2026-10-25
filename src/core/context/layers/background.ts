@@ -696,7 +696,7 @@ export const threads: LayerFn = async (a, spec) => {
     admitStoryTime(a, spec, book);
   }
   if (a.request.action.stage === 'plot') {
-    admitPlotThreads(a, spec, book);
+    await admitPlotThreads(a, spec, book);
     return;
   }
   const plot = a.focus.plot;
@@ -763,11 +763,16 @@ function admitStoryTime(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1],
  *   标签分「叙事线 · 」「伏笔 · 」两种，消息里同一节、伏笔另起一段（builder.ts）。
  * - 两组各自封顶：线按 `plotThreadCount`、伏笔按 `plotForeshadowCount`，字数各按 `plotThreadChars`；放不下的 dropped 并写
  *   原因（第 2 条）。伏笔另算一组，是因为「本批要收」的那几条是这一层最要紧的东西，不该被几条长的线挤掉。
+ * - 伏笔名额外的（2026-10-25）：名字并成一行「其余没收的伏笔」，模型知道还有这几条开着，细纲没安排就不碰、也不另起同名的
+ *   （与规划时角色图谱「其余只列名字」一个道理）。最多列名额的两倍，再多的连名字也不列，明细里说清。
+ * - 这几章的细纲（拆细纲的空壳只有梗概，重拆是整份）与作者这一次的话里提到的伏笔排在前面（`plotThreads` 的 `text`）。
  * - 取消勾选的不占名额。没有叙事线、或一条有关的都没有：什么都不出。
  */
-function admitPlotThreads(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], book: ThreadBook): void {
+async function admitPlotThreads(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1], book: ThreadBook): Promise<void> {
   const range = a.focus.range ?? { from: a.focus.no, to: a.focus.no };
-  const { lines, foreshadowing } = plotThreads(book, range);
+  const plots = (await a.project.listPlots()).filter((p) => p.no >= range.from && p.no <= range.to);
+  const text = [a.request.ask, ...plots.map((p) => [p.title, ...Object.values(p.sections)].join('\n'))].join('\n');
+  const { lines, foreshadowing } = plotThreads(book, range, text);
   const groups: { list: ContextThread[]; what: '叙事线' | '伏笔'; count: number; idOf: (c: ContextThread) => string }[] = [
     { list: lines, what: '叙事线', count: a.limits.plotThreadCount, idOf: (c) => `thread:${c.relPath}` },
     { list: foreshadowing, what: '伏笔', count: a.limits.plotForeshadowCount, idOf: (c) => `thread:${c.relPath}#${c.name}` },
@@ -791,11 +796,31 @@ function admitPlotThreads(a: Parameters<LayerFn>[0], spec: Parameters<LayerFn>[1
     for (const c of list.filter((x) => a.excluded.has(idOf(x)))) {
       a.admit({ ...base(c), text: '' });
     }
+    const listed = new Set<string>();
+    if (what === '伏笔' && dropped.length > 0 && count > 0) {
+      const max = count * 2;
+      const names = dropped.slice(0, max);
+      const left = dropped.length - names.length;
+      const item = a.admit({
+        id: FORESHADOW_REST_ID,
+        kind: 'thread',
+        priority: spec.priority,
+        label: `伏笔 · 其余 ${dropped.length} 条（只列名字）`,
+        text: `其余没收的伏笔（名额外，只列名字；细纲没安排就别揭开，也别另起同名的）：${names.map((d) => d.name).join('、')}${left > 0 ? ` 等 ${dropped.length} 条` : ''}。`,
+        note: left > 0 ? `名额外的只列名字，最多 ${max} 个，其余 ${left} 条连名字也没列` : '名额外的只列名字',
+      });
+      if (item.status === 'included') {
+        names.forEach((d) => listed.add(idOf(d)));
+      }
+    }
     for (const d of dropped) {
-      a.reject({ ...base(d), text: '' }, 'dropped', d.note);
+      a.reject({ ...base(d), text: '' }, 'dropped', listed.has(idOf(d)) ? `${d.note}；名字列在「其余没收的伏笔」里` : d.note);
     }
   }
 }
+
+/** 拆细纲时名额外的伏笔只列名字的那一行（{@link admitPlotThreads}）。 */
+const FORESHADOW_REST_ID = 'thread:foreshadowing-rest';
 
 /** 一章的片段：定位得到的原文段落在前，定位不到的事实原句在后。 */
 function renderEvidence(

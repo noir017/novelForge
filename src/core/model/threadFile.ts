@@ -2334,14 +2334,22 @@ function linePlanHead(t: Thread, range: { from: number; to: number }): string {
  * （最近动过的在前）→ 计划中、这几章已经在它的计划区间里的 → 还没到开始那一章的（⚑ 也带，写明「还不到」：拆细纲要
  * 知道后面有这条线，才不会另起一条、也不会提前开）。
  *
- * **伏笔**：写到区间第一章时还没收、也没弃的（线收束了，伏笔照样可能开着），一条一行。排法：计划在这几章或更早收的
- * （「本批要收」/「已过第 b 章，还没收」，回收章早的在前；还没埋的另说「还没埋，先埋再收」）→ 这几章原来有计划的 → 已经
- * 埋下的（埋得早的在前）、计划在这几章或更早埋的（「本批要埋」/「计划第 a 章埋，还没埋」）→ 还没定哪一章埋的。**计划在
- * 这几章之后才埋的不带**（提了等于叫模型提前埋）；还没开始的线上没定哪一章埋的也不带。
+ * **伏笔**：写到区间第一章时还没收、也没弃的（线收束了，伏笔照样可能开着），一条一行。排法（2026-10-25 重排）：
+ * 1. 计划在这几章或更早收的（「本批要收」/「已过第 b 章，还没收」，回收章早的在前；还没埋的另说「还没埋，先埋再收」）；
+ * 2. 这几章原来有计划的；
+ * 3. 计划在这几章或更早埋、还没埋的（「本批要埋」/「计划第 a 章埋，还没埋」）——细纲合同与事后的 {@link unplannedDue} 认的
+ *    就是这几个字，从前与已埋的同一档、排在它们后面，已埋的一多就被名额挤掉：模型看不见，事后照样报漏排；
+ * 4. `text`（这几章的细纲、作者这一次的话）里提到的已埋、没定哪一章埋的；
+ * 5. 已埋、定了回收章的：回收章近的在前；
+ * 6. 已埋、没定回收章的：最近动过的在前（从前埋得早的在前，写到八十章，第 2 章埋下、作者暂时不收的开篇伏笔占满名额）；
+ * 7. 还没定哪一章埋的。
+ *
+ * **计划在这几章之后才埋的不带**（提了等于叫模型提前埋）；还没开始的线上没定哪一章埋的也不带。
  */
 export function plotThreads(
   book: ThreadBook,
-  range: { from: number; to: number }
+  range: { from: number; to: number },
+  text = ''
 ): { lines: ContextThread[]; foreshadowing: ContextThread[] } {
   const { from, to } = range;
   const scope = planScope(range);
@@ -2401,13 +2409,23 @@ export function plotThreads(
   }
 
   const fores: (ContextThread & { tie: number; order: number })[] = [];
+  const mentioned = mentionTest(text);
   const files: { file: ThreadFileBase; line?: string }[] = [...book.threads.map((t) => ({ file: t, line: t.name })), { file: book.unfiled }];
   for (const { file, line } of files) {
     const planned = file.events.filter((e) => inRange(e) && e.foreshadowing);
     const notYet = !!line && later.has(threadKey(line));
     // 推迟认原样那一份，这几章原来的计划除外（这一次整组换掉）。
     const plans = file.events.filter((e) => !inRange(e));
-    for (const f of foreshadowingOf(asOf(file, from), from - 1, plans)) {
+    const before = asOf(file, from);
+    /** 每条伏笔最近一次实际动过（埋，或再埋一次）是第几章。 */
+    const touched = new Map<string, number>();
+    for (const e of actualEvents(before)) {
+      if (e.foreshadowing) {
+        const key = threadKey(e.foreshadowing);
+        touched.set(key, Math.max(touched.get(key) ?? 0, e.chapter));
+      }
+    }
+    for (const f of foreshadowingOf(before, from - 1, plans)) {
       if (isForeshadowClosed(f.status)) {
         continue;
       }
@@ -2415,6 +2433,7 @@ export function plotThreads(
       let rank: number;
       let hint: string;
       let tie = 0;
+      let said = false;
       if (f.resolveBy !== undefined && f.resolveBy <= to) {
         rank = 0;
         hint = f.resolveBy < from ? `已过第 ${f.resolveBy} 章，还没收` : scope === '本章' ? '本章要收' : `本批要收，最晚第 ${f.resolveBy} 章`;
@@ -2428,17 +2447,19 @@ export function plotThreads(
         rank = 1;
         hint = f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前收` : '还没定哪一章收';
         tie = mine[0].chapter;
-      } else if (f.status === '已埋') {
-        rank = 2;
-        hint = f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前收，之前不要揭开` : '还没定哪一章收，不要随手揭开';
-        tie = f.plantedAt ?? 0;
-      } else if (f.plantBy !== undefined && f.plantBy <= to) {
+      } else if (f.status !== '已埋' && f.plantBy !== undefined && f.plantBy <= to) {
         rank = 2;
         // 复跑之后：在这几章里该埋的标「本批要埋」，过了还没埋的标「还没埋」——合同里那条规矩认的就是这两种说法。
         hint = `${f.plantBy < from ? `计划第 ${f.plantBy} 章埋，还没埋` : `${scope}要埋，计划第 ${f.plantBy} 章`}${f.resolveBy !== undefined ? `、第 ${f.resolveBy} 章前收` : ''}`;
         tie = f.plantBy;
+      } else if (f.status === '已埋') {
+        said = mentioned(f.name);
+        hint = f.resolveBy !== undefined ? `第 ${f.resolveBy} 章前收，之前不要揭开` : '还没定哪一章收，不要随手揭开';
+        rank = said ? 3 : f.resolveBy !== undefined ? 4 : 5;
+        tie = said ? 0 : (f.resolveBy ?? -(touched.get(threadKey(f.name)) ?? f.plantedAt ?? 0));
       } else if (f.plantBy === undefined && !notYet) {
-        rank = 3;
+        said = mentioned(f.name);
+        rank = said ? 3 : 6;
         hint = '还没定哪一章埋';
       } else {
         // 计划在这几章之后才埋、或挂在还没开始的线上：提了等于叫模型提前埋。
@@ -2449,7 +2470,7 @@ export function plotThreads(
         relPath: file.relPath,
         name: f.name,
         status: f.status,
-        why: hint,
+        why: said ? `${hint}；${scope}细纲或作者的话里提到了` : hint,
         rank,
         line: `- ${f.name}（挂在「${line ?? UNFILED_NAME}」· ${f.status} · ${hint}）${parts.join('；')}`,
         tie,
