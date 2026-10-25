@@ -9,7 +9,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 补记之前：工程页说「⚠ 第 1–5 章还没判」、判到第 0 章；总览上五列都标「还没判」 | 定稿了、叙事线没判的章看得出来 |
- * | 补记：确认框写明章数与次数（排线 + 每章 1–3 次）；线文件里有带证据的实际事件；水位到第 5 章；工程页不再提示落后、总览不再标 | 设计稿「九」；第 4 条 |
+ * | 补记：确认框写明章数与次数（排线 2 次 + 每章 2–6 次，含转写）；线文件里有带证据的实际事件；水位到第 5 章；工程页不再提示落后、总览不再标 | 设计稿「九」；第 4 条 |
  * | 实际调用次数不超过确认框报的上限 | 第 4 条 |
  * | 再写一章、单章定稿：水位推到第 6 章 | 定稿在连续时推水位 |
  * | 中途一章没判成：已判的留着，水位停在它前面，失败挂在那一章上（第 16 条），工程页说剩下的几章还没判 | ⚑ 一章没判成就停 |
@@ -192,9 +192,13 @@ describe('叙事线重做四期验收：一本已写 5 章、没有任何线的�
     assert.ok(overviewBefore.chapters.slice(5).every((c) => c.state === 'planned' && !c.unjudged), JSON.stringify(overviewBefore.chapters.slice(5)));
   });
 
-  test('确认框写明章数与次数：先排线 1 次 + 5 章 × 1–3 次', () => {
+  // 2026-10-25 起含转写：排线 2 次（最多 3）+ 5 章 × 2–6 次（最多 9）。
+  test('确认框写明章数与次数：先排线 2 次 + 5 章 × 2–6 次', () => {
     assert.match(confirm.message, /^从已写正文补记叙事线：第 1–5 章同步过、叙事线还没判/);
-    assert.ok(confirm.message.includes('先从情节大纲排一次（1 次）') && confirm.message.includes('预计 6–16 次调用'), confirm.message);
+    assert.ok(
+      confirm.message.includes('先从情节大纲排一次（排 1 次、转写 1 次）') && confirm.message.includes('预计 12–32 次调用，最多 48 次'),
+      confirm.message
+    );
     assert.deepEqual(confirm.actions, ['开始补记']);
   });
 

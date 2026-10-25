@@ -174,13 +174,13 @@ describe('拆细纲弹窗', { skip: JSDOM_SKIP }, () => {
     assert.ok(note(ui).includes('要拆 9 章，分 3 批') && note(ui).includes('预计 6 次调用，最多 51 次'), note(ui));
   });
 
-  // 叙事线重做（设计稿 ⚑8）：一条线都没有时后端开拆之前先排一次，弹窗把它算进去。
-  test('一条叙事线都没有：说明里 +1 次，写明先从情节大纲排一次', () => {
+  // 叙事线重做（设计稿 ⚑8）：一条线都没有时后端开拆之前先排一次，弹窗把它算进去（2026-10-25 起排 1 次、转写 1 次，最多 3 次）。
+  test('一条叙事线都没有：说明里 +2 次（最多 +3），写明先从情节大纲排一次', () => {
     key(ui, ui.doc, 'Escape');
     ui.post({ type: 'project', tree: { ...sampleTree(), threads: { lines: [], current: 0 } } });
     pickFromGroup(ui, '章节', '批量拆细纲…');
-    assert.ok(note(ui).includes('预计 3 次调用，最多 24 次'), note(ui));
-    assert.ok(note(ui).includes('还没有叙事线：开拆之前先从情节大纲排一次'), note(ui));
+    assert.ok(note(ui).includes('预计 4 次调用，最多 26 次'), note(ui));
+    assert.ok(note(ui).includes('还没有叙事线：开拆之前先从情节大纲排一次（排 1 次、转写 1 次'), note(ui));
     key(ui, ui.doc, 'Escape');
     ui.post({ type: 'project', tree: sampleTree() });
     pickFromGroup(ui, '章节', '批量拆细纲…');

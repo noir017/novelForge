@@ -5,8 +5,8 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 要判的是水位之后、定稿到之前、定稿过且正文没再改过的章；改过的、没定稿的列进 skipped | 第 4 条：不偷偷补 |
- * | 一条线都没有、有情节大纲：先排线，次数算进同一个确认框（每章 1–3 次 + 1） | 设计稿「九」；第 4 条 |
- * | 确认框写明章数与次数，走「定稿」档（加上排线的「剧情细纲」档）、看详细度 | 第 4 条；设计稿「调用次数」 |
+ * | 一条线都没有、有情节大纲：先排线，次数算进同一个确认框（每章 2–6 次 + 排线 2 次；2026-10-25 起含转写） | 设计稿「九」；第 4 条 |
+ * | 确认框写明章数与次数，走「定稿」档（加上排线的「剧情细纲」档）、看详细度，转写单列一行 | 第 4 条；设计稿「调用次数」 |
  * | 按章号串行：后一章认事件时看得到前一章新认出的线 | 串行的理由 |
  * | 一章没判成：停下，已判的留着，水位停在它前面，失败挂在那一章上；后面的章一次都没调 | 第 16 条；⚑ 一章没判成就停 |
  * | 再点一次：从没判成的那一章接着判，水位推到定稿到，那一章上的失败清掉 | 补记从水位之后接着走 |
@@ -130,7 +130,8 @@ describe('要判哪几章（零调用）', () => {
     assert.deepEqual(plan.skipped, [{ no: 5, why: '同步之后正文又改过' }]);
     assert.equal(plan.planFirst, true);
     assert.equal(plan.current, 6);
-    assert.deepEqual(plan.calls, { low: 4 + 1, high: 12 + 1, max: 12 + 1 });
+    // 每章写 1–3 次、各转写 1 次（重转最多再 1 次）：2–6、最多 9；先排线：排 1 次、转写 1 次，最多 3 次。
+    assert.deepEqual(plan.calls, { low: 8 + 2, high: 24 + 2, max: 36 + 3 });
     // 收回去：后面的用例从干净的第 1–6 章起。
     await project.writeManifest({ ...(await project.readManifest()), threadsJudged: undefined });
     t.write(CH(5), text(5));
@@ -151,7 +152,7 @@ describe('要判哪几章（零调用）', () => {
     const plan = await bundle.backfill.planThreadsBackfill(project);
     assert.equal(plan.planFirst, false);
     assert.deepEqual(plan.skipped, [{ no: 3, why: '还没同步' }]);
-    assert.deepEqual(plan.calls, { low: 5, high: 15, max: 15 });
+    assert.deepEqual(plan.calls, { low: 10, high: 30, max: 45 });
     for (const [rel, text] of saved) {
       t.write(rel, text);
     }
@@ -175,11 +176,13 @@ describe('补记：按章串行，第 4 章没判成就停', () => {
   test('确认框写明章数与次数，先排线算进去；走「定稿」档与「剧情细纲」档，看详细度', () => {
     const c = h.confirms.at(-1);
     assert.match(c.message, /^从已写正文补记叙事线：第 1–6 章同步过、叙事线还没判/);
-    assert.ok(c.message.includes('先从情节大纲排一次（1 次）'), c.message);
-    assert.ok(c.message.includes('预计 7–19 次调用'), c.message);
+    assert.ok(c.message.includes('先从情节大纲排一次（排 1 次、转写 1 次）'), c.message);
+    assert.ok(c.message.includes('（每章 2–6 次）') && c.message.includes('预计 14–38 次调用，最多 57 次'), c.message);
     assert.deepEqual(c.actions, ['开始补记']);
     assert.ok(c.detail.includes('共 6 章，按章号一章一章往后判'), c.detail);
     assert.equal(c.call.tiers.length, 2);
+    // 转写不跟这一次挑的模型，单列一行（2026-10-25）。
+    assert.equal(c.call.fixed?.length, 1, JSON.stringify(c.call));
     assert.ok('contextDetail' in c.call);
   });
 

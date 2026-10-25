@@ -1081,12 +1081,22 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(plan.calls, { low: 6, high: 6, max: 69 });
   });
 
-  // 叙事线重做（设计稿 ⚑8）：一条线都没有时开拆之前先从情节大纲排一次；拆完不再排。
-  test('一条叙事线都没有：先排一次，+1；没有要拆的就不排', () => {
+  // 叙事线重做（设计稿 ⚑8）：一条线都没有时开拆之前先从情节大纲排一次；拆完不再排。2026-10-25 起排线也转写：排 1 次、转写 1 次，最多 3 次。
+  test('一条叙事线都没有：先排一次，加 THREAD_PLAN_CALLS（2 次，最多 3 次）；没有要拆的就不排', () => {
+    assert.deepEqual(pipeline.THREAD_PLAN_CALLS, { low: 2, high: 2, max: 3, why: '排 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次' });
     const plan = pipeline.planPlotBatches({ from: 1, to: 14, filledNos: [4, 5], planThreads: true });
-    assert.deepEqual(plan.calls, { low: 7, high: 7, max: 70 });
+    assert.deepEqual(plan.calls, { low: 8, high: 8, max: 72 });
     const none = pipeline.planPlotBatches({ from: 7, to: 5, filledNos: [5, 6, 7], planThreads: true });
     assert.deepEqual(none.calls, { low: 0, high: 0, max: 0 });
+  });
+
+  // 2026-10-25 起叙事线判一章的几次都转写：认事件 / 归并 / 当前进度各写 1 次、转写 1 次、不合格重转 1 次。
+  test('叙事线判一章 2–6 次、最多 9 次；补记 n 章是 n 倍，先排线再加排线那一份', () => {
+    const { low, high, max, why } = pipeline.THREADS_JUDGE_CALLS;
+    assert.deepEqual({ low, high, max }, { low: 2, high: 6, max: 9 });
+    assert.ok(why.includes('每写一次转写模型照抄成 JSON 1 次，转写不合格重转 1 次'), why);
+    assert.deepEqual(pipeline.threadsBackfillCalls(3, false), { low: 6, high: 18, max: 27 });
+    assert.deepEqual(pipeline.threadsBackfillCalls(3, true), { low: 8, high: 20, max: 30 });
   });
 
   test('区间写反了照样认；全都排过时一批都没有', () => {

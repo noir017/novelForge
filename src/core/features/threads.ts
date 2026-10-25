@@ -11,9 +11,10 @@
  *
  * - **只新建线**（一条线一个文件 `threads/<线名>.md`，伏笔写在线下），同名的跳过，已有的一个字不动——没有东西
  *   会被吞，所以不走写入卡（第 19 条的批量路径）；作者不要哪条，删掉那个文件就是。
- * - 动手之前确认框写明 1 次调用与用哪一档（第 4 条）。走「剧情细纲」档（`plotOutline`）：排线和拆细纲是同一种活，
- *   在大纲与各章计划之间排跨章的东西。不带思考深度（第 26 条）。
- * - 不做修复重试：1 次就是 1 次。坏了挂红 ❗ 在叙事线目录上（第 16 条），作者再点一次。
+ * - 动手之前确认框写明调用次数与用哪一档（第 4 条，`THREAD_PLAN_CALLS`）。走「剧情细纲」档（`plotOutline`）：排线和拆细纲
+ *   是同一种活，在大纲与各章计划之间排跨章的东西。不带思考深度（第 26 条）。
+ * - 2026-10-25 起改成转写：模型按格式写（一条线一段「## 线名」），转写那一档照抄成 JSON（排 1 次、转写 1 次，转写不合格重转
+ *   1 次）。排的那一次不重来：没排成挂红 ❗ 在叙事线目录上（第 16 条），作者再点一次。
  *
  * 不进主按钮（第 20 条只推一个下一步，设计稿 ⚑8）：入口是工程页（七期那一行，第 8 个提交换成「叙事线」组
  * 标题旁的按钮）与 agent 的 `extract threads`；批量拆细纲开跑时一条线都没有，先排一次（features/pipelineBatch.ts）。
@@ -25,6 +26,9 @@
  * 一条线的「进展」里**追加**一行带原文的记录，不吞任何东西；证据逐字校验（`verifyFinds`）就是那道闸。线是空的也认：
  * 正文里长出来的线只能在这里认出来（设计稿 ⚑6：定稿每章最少 2 次）。当前进度由机器维护、指纹守着（作者改过就不写），
  * 照角色卡「当前状态」的做法。详见 {@link recordThreads}。
+ *
+ * 认事件、归并、当前进度 2026-10-25 起也改成转写（{@link askTranscribed}）：模型按格式写自然语言，转写那一档照抄成原来那份
+ * JSON，解码与校验（model/threadFile.ts 的 `verify…`）一行没改。证据让模型用「」引出原句，转写照抄，之后照旧逐字对正文核。
  */
 import { readConfig } from '../config';
 import { contextLimitsOf } from '../model/contextDetail';
@@ -40,7 +44,7 @@ import { runTask } from '../runtime/progress';
 import { NovelProject } from '../model/project';
 import { CHARACTER_DETAIL_LIMITS, Chapter, CharacterCard } from '../model/types';
 import { LlmProvider } from '../llm/provider';
-import { ONE_CALL, describeCalls } from '../model/pipeline';
+import { THREAD_PLAN_CALLS, describeCalls } from '../model/pipeline';
 import { isOutlineFilled, outlineBriefs } from '../model/outlineFile';
 import { withCallChoice } from '../runtime/callScope';
 import { askCall } from './askCall';
@@ -95,7 +99,18 @@ import {
 import { Workspace } from '../workspace';
 import { readTextIfExists } from '../model/fs';
 import { extractJsonObject, jsonList, stripCodeFence, stripTrailingCommas } from './parse';
-import { THREAD_FIND_SYSTEM, THREAD_MERGE_SYSTEM, THREAD_PROGRESS_SYSTEM, threadPlanSystem } from './threadsPrompt';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall, TranscribeSpec, transcribeJson } from './transcribe';
+import {
+  THREAD_FIND_SYSTEM,
+  THREAD_MERGE_SYSTEM,
+  THREAD_PROGRESS_SYSTEM,
+  threadFindJsonContract,
+  threadMergeJsonContract,
+  threadPlanJsonContract,
+  threadPlanSystem,
+  threadProgressJsonContract,
+} from './threadsPrompt';
 
 const log = scoped('叙事线');
 
@@ -206,42 +221,37 @@ export async function planThreadsFromOutline(
   if (knownFore.length > 0) {
     parts.push(`【已有的伏笔（不要重复）】\n${knownFore.join('、')}`);
   }
-  parts.push('请按要求输出 JSON。');
+  parts.push('请按上面的格式写。');
   const hasMain = book.threads.some((t) => t.kind === '主线');
 
   report({ message: '排线', current: 1, total: 2 });
-  const options: StreamOptions = {
-    maxOutputTokens: pool.primaryBudget.maxOutputTokens,
-    temperature: 0.4,
-    timeoutMs: config.requestTimeoutMs,
-    signal,
-  };
   const startedAt = Date.now();
   let plans: NewThread[];
   let bad = 0;
   let sameInReply = 0;
   try {
-    out.calls = 1;
-    const raw = await pool.run('排叙事线', (llm) =>
-      collectText(
-        llm.stream(
-          [
-            { role: 'system', content: threadPlanSystem(bookConfig.totalChapters, hasMain) },
-            { role: 'user', content: parts.join('\n\n') },
-          ],
-          options
-        )
-      )
+    // 2026-10-25 起改成转写：一条线一段「## 线名」，转写那一档照抄成原来的 {threads:[…]}（那一档一个可用的都没有就用这个池）。
+    const asked = await askTranscribed(
+      { run: (what, fn) => pool.run(what, fn), budget: pool.primaryBudget, signal, transcribe: poolTranscriber(signal, pool) },
+      {
+        label: '排叙事线',
+        system: threadPlanSystem(bookConfig.totalChapters, hasMain),
+        user: parts.join('\n\n'),
+        temperature: 0.4,
+        what: '叙事线',
+        spec: planSpec(),
+        tally: (n) => (out.calls += n),
+      }
     );
     if (signal.aborted) {
       log.warn('排叙事线被取消，未写盘');
       return { ...out, cancelled: true };
     }
-    log.info('模型已返回', `${raw.length} 字，用时 ${elapsed(startedAt)}`);
-    const list = jsonList(raw, 'threads');
-    if (!list) {
-      throw new Error('模型返回的内容里解析不出 JSON');
+    log.info('模型已返回', `调用 ${out.calls} 次，用时 ${elapsed(startedAt)}`);
+    if (!asked.ok) {
+      throw new Error(asked.error);
     }
+    const list = asked.value;
     const verified = verifyThreadPlans(list, { threads: book.threads, foreshadowing: knownFore }, bookConfig.totalChapters);
     const notes = [
       ...verified.dropped.map((d) => `线 ${d.name}：${d.why}`),
@@ -319,14 +329,14 @@ export async function generateThreads(project: NovelProject): Promise<number> {
   const rel = project.relPath(project.threadsDir);
   const hasMain = threads.some((t) => t.kind === '主线');
   const answer = await askCall({
-    message: `要从情节大纲排出叙事线，${describeCalls(ONE_CALL)}。现在排？`,
+    message: `要从情节大纲排出叙事线，${describeCalls(THREAD_PLAN_CALLS)}。现在排？`,
     actions: ['开始排'],
     detail:
       `一次最多排 ${THREAD_PLAN_LIMIT} 条（主线 / 支线 / 感情线 / 人物线，主线全书一条），伏笔写在线下；一条线一个文件，放在 ${rel}/ 里，可以手改。` +
       (threads.length > 0
         ? `已有的 ${threads.length} 条不会改动，同名的跳过${hasMain ? '；主线已经有了，不再排主线' : ''}。`
         : ''),
-    tasks: ['plotOutline'],
+    tasks: ['plotOutline', 'transcribe'],
     contextDetail: true,
   });
   if (answer?.action !== '开始排') {
@@ -379,7 +389,7 @@ export const PROGRESS_OP = 'threadProgress';
 
 /** {@link recordThreads} 的结果。 */
 export interface ThreadsOutcome {
-  /** 调了几次模型：认事件 1 次，当前进度、归并各 0–1 次。 */
+  /** 调了几次模型：认事件写 1 次、转写 0–2 次，归并、当前进度各 0–3 次（写 1 次、转写 0–2 次）。 */
   calls: number;
   /** 记下的实际事件：落在哪条线上（缺席是「未归属的伏笔」）。 */
   recorded: FoundEvent[];
@@ -413,6 +423,11 @@ export interface StepOpts {
   run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
   budget: { contextWindow: number; maxOutputTokens: number };
   signal?: AbortSignal;
+  /**
+   * 转写那一次怎么调（2026-10-25 起叙事线几次都是写自然语言、再转写，{@link askTranscribed}）。缺席走「转写」那一档
+   * （features/poolIO.ts 的 `poolTranscriber`），那一档一个可用的都没有就用 `run` 那个。
+   */
+  transcribe?: TranscribeCall;
 }
 
 /** 调一次模型、取回 JSON 对象。解析不出来抛错（`what` 写进错误里）。认故事时间（features/storyTime.ts）也用它。 */
@@ -447,6 +462,190 @@ export async function askJsonObject(opts: StepOpts, label: string, system: strin
   throw new Error(`模型返回的${what}解析不出来`);
 }
 
+// ---------------------------------------------------------------- 转写（2026-10-25 起）
+
+/** 叙事线那几次里的一次转写：{@link TranscribeSpec} 之外，原文全是「无」时交回什么、原文写了几条转写却一条没有怎么认。 */
+interface ThreadSpec<T> extends TranscribeSpec<T> {
+  /** 原文除了小标题全写的「无」（什么都没认出、一条都不并）：直接交回它，不花转写那一次。缺席 = 照常转写。 */
+  empty?: T;
+  /** 原文里写了条目的样子（「证据：」「## 线名」「【线】」「→」）。 */
+  written?: RegExp;
+  /** 解出来的有几条：原文写了（`written`）、转写出来一条都没有，算转写不合格、重转——不然整章认出来的悄悄丢了。 */
+  items?(value: T): number;
+}
+
+/** 叙事线那几次里的一次：写什么、怎么转写、调用怎么记账。 */
+interface TranscribedStep<T> {
+  /** 写的那一次在日志里叫什么（「第 3 章 · 叙事线」）。 */
+  label: string;
+  system: string;
+  user: string;
+  temperature: number;
+  /** 没成时那一句里怎么称呼它：「模型返回的叙事线事件解析不出来」「叙事线事件转写不合格（……）」。 */
+  what: string;
+  spec: ThreadSpec<T>;
+  /** 每调一次记一笔（写 1 次、转写 0–2 次）：写的那一次出错往外抛时，那一次也已经记上了。 */
+  tally(n: number): void;
+}
+
+/**
+ * 原文里「什么都没有」的一行：「无」「- 无」「（无）」「事件：无」，也认换了说法的「无需归并。」「本章没有新的事件」——
+ * 一条都不并时模型未必只写一个「无」，当成解不出来会挂一个白挂的黄 ❗。条目行总带着「证据：「」」「→」「｜」，认不成「没有」。
+ */
+const NONE_LINE = /^(?:[^:：「」]{1,8}[:：]\s*)?(?:本章|这一章)?[（(]?\s*(?:无|没有|暂无|都不)[^「」｜|→:：]{0,24}$/u;
+
+/** 原文除了小标题全写的「无」。 */
+function nothingWritten(text: string): boolean {
+  const lines = stripCodeFence(text)
+    .split(/\r?\n/)
+    .map((l) => l.trim().replace(/^[-*]\s*/, ''))
+    .filter((l) => l && !l.startsWith('#'));
+  return lines.length > 0 && lines.every((l) => NONE_LINE.test(l));
+}
+
+/** 调一次模型、拿回原文。 */
+async function askText(opts: StepOpts, label: string, system: string, user: string, temperature: number): Promise<string> {
+  const options: StreamOptions = {
+    maxOutputTokens: opts.budget.maxOutputTokens,
+    temperature,
+    timeoutMs: readConfig().requestTimeoutMs,
+    signal: opts.signal,
+  };
+  return opts.run(label, (llm) =>
+    collectText(
+      llm.stream(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        options
+      )
+    )
+  );
+}
+
+/** {@link StepOpts.transcribe} 缺席时的那一个：「转写」那一档，退回 `run` 那个。一章里几次共用一个（池只建一次）。 */
+function transcriberOf(opts: StepOpts): TranscribeCall {
+  return opts.transcribe ?? poolTranscriber(opts.signal ?? new AbortController().signal, { run: opts.run, primaryBudget: opts.budget });
+}
+
+/**
+ * 叙事线那几次的一次（2026-10-25 起改成转写）：模型按格式写自然语言，转写那一档照抄成 JSON（features/transcribe.ts 的
+ * `transcribeJson`：原文本身是 JSON 不转、不像这一步不转，改了字重转一次），交回解出来的值。写的那一次出错照旧往外抛；
+ * 没解出来交回一句说清是哪种的话（转写调用失败 / 转写不合格 / 原文就解析不出来），走法归调用方——照这一步原来解析失败的走法。
+ */
+async function askTranscribed<T>(opts: StepOpts, step: TranscribedStep<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+  step.tally(1);
+  const raw = await askText(opts, step.label, step.system, step.user, step.temperature);
+  const { spec } = step;
+  if (spec.empty !== undefined && nothingWritten(raw)) {
+    return { ok: true, value: spec.empty };
+  }
+  const written = !!spec.written?.test(raw);
+  const decode: TranscribeSpec<T>['decode'] = (json) => {
+    const d = spec.decode(json);
+    return d.ok && written && spec.items && spec.items(d.value) === 0 ? { ok: false, message: '原文写了，转写出来一条都没有' } : d;
+  };
+  const r = await transcribeJson(raw, { ...spec, decode }, transcriberOf(opts));
+  step.tally(r.calls);
+  if (r.notes.length > 0) {
+    log.warn(`${spec.label}转写不合格`, r.notes.join('\n'));
+  }
+  if (r.ok) {
+    return { ok: true, value: r.value };
+  }
+  return {
+    ok: false,
+    error: r.failed
+      ? `${step.what}转写没成（${r.message}）`
+      : r.calls > 0
+        ? `${step.what}转写不合格（${r.message}）`
+        : `模型返回的${step.what}解析不出来`,
+  };
+}
+
+/** 吃 JSON 文本、交回一个对象：与 {@link askJsonObject} 同一个宽松取法（剥围栏、取最外层对象、去多余的逗号）。 */
+function decodeObject(json: string): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+  const text = extractJsonObject(stripCodeFence(json));
+  try {
+    const value: unknown = text ? JSON.parse(stripTrailingCommas(text)) : undefined;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return { ok: true, value: value as Record<string, unknown> };
+    }
+  } catch {
+    // 落到下面那一句。
+  }
+  return { ok: false, message: '不是一个 JSON 对象' };
+}
+
+const listLength = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+
+/** 排线：一条线一段「## 线名」，种类、章号按对应关系填。 */
+function planSpec(): ThreadSpec<unknown[]> {
+  return {
+    label: '排出的叙事线',
+    contract: threadPlanJsonContract(),
+    decode: (json) => {
+      const list = jsonList(json, 'threads');
+      return list ? { ok: true, value: list } : { ok: false, message: '没有 threads 列表' };
+    },
+    mapped: ['kind', 'from', 'to', 'plant', 'resolve'],
+    looksLike: (s) => /种类\s*[:：]/.test(s),
+    written: /^#{1,3}\s*\S/m,
+    items: (list) => list.length,
+  };
+}
+
+/** 认事件：三节，一条一行「类型｜线名：发生了什么。证据：「原句」」；类型、种类按对应关系填，证据照抄（之后照旧对正文核）。 */
+function findSpec(no: number): ThreadSpec<Record<string, unknown>> {
+  return {
+    label: `第 ${no} 章的叙事线事件`,
+    contract: threadFindJsonContract(),
+    decode: decodeObject,
+    mapped: ['type', 'kind'],
+    looksLike: (s) => /证据\s*[:：]/.test(s) || /^#*\s*(?:事件|新线|新伏笔)\s*[:：]?\s*$/m.test(s),
+    written: /证据\s*[:：]/,
+    items: (o) => listLength(o.events) + listLength(o.newThreads) + listLength(o.newForeshadowing),
+    empty: { events: [], newThreads: [], newForeshadowing: [] },
+  };
+}
+
+/** 归并：一条一行「新名字 → 已有名字：理由」，一条都不并写「无」。 */
+function mergeSpec(no: number): ThreadSpec<Record<string, unknown>> {
+  return {
+    label: `第 ${no} 章的叙事线归并`,
+    contract: threadMergeJsonContract(),
+    decode: decodeObject,
+    looksLike: (s) => /→|->/.test(s),
+    written: /→|->/,
+    items: (o) => listLength(o.merges),
+    empty: { merges: [] },
+  };
+}
+
+/** 当前进度：一条线一段「【线】线名」「当前进度：……」。 */
+function progressSpec(no: number): ThreadSpec<Record<string, unknown>> {
+  return {
+    label: `第 ${no} 章的叙事线当前进度`,
+    contract: threadProgressJsonContract(),
+    decode: decodeObject,
+    looksLike: (s) => s.includes('【线】'),
+    written: /【线】/,
+    items: (o) => listLength(o.progress),
+  };
+}
+
+/** 认事件没成（写了、却没解出来）：带上这一次实际调了几次（写 1 次、转写 0–2 次），调用方照实记账（第 4 条）。 */
+export class ThreadsFindError extends Error {
+  constructor(
+    message: string,
+    readonly calls: number
+  ) {
+    super(message);
+    this.name = 'ThreadsFindError';
+  }
+}
+
 /** 送去认的一条线：名字、种类、状态、区间、意图、现在走到哪、最近一次实际事件（都按写到这一章时算）。 */
 function judgeLine(t: LineThread): string {
   const range = t.from !== undefined || t.to !== undefined ? `计划第 ${t.from ?? '?'}–${t.to ?? '?'} 章` : '';
@@ -472,7 +671,7 @@ function mergeCandidate(f: JudgedForeshadow): string {
 }
 
 /**
- * 定稿第三步（设计稿「三」）：叙事线 1–3 次。
+ * 定稿第三步（设计稿「三」）：叙事线写 1–3 次，2026-10-25 起每次写完转写 1 次（不合格重转 1 次；原文全是「无」不转）。
  *
  * ```
  * a. 认事件（1 次，线是空的也跑）：正文 + 没收束的线 + 没收的伏笔 + 本章计划 → 实际事件、新线、新伏笔、关系变动
@@ -489,8 +688,9 @@ function mergeCandidate(f: JudgedForeshadow): string {
  * 伏笔一起交给模型，二期细纲删了那一节，这一处跟着删——老细纲里留着的那一节当认不出的小节，不读。
  *
  * `run` 决定怎么调模型（同 `updateCharacterStates`）：单章入口直接用对话页选定的那个，批量入口传「定稿」档
- * （`plotSummary`）的池。a 调用失败或解析不出来时抛错——细纲已经更新好了，由调用方把失败挂在章节上；b、c 失败只记在
- * 结果里（a 记下的照样算数），取消照样抛出去。
+ * （`plotSummary`）的池；转写走「转写」那一档（`opts.transcribe`，缺席见 {@link transcriberOf}）。a 调用失败、转写没成或解析不出来时
+ * 抛错（写了却没解出来的是 {@link ThreadsFindError}，带着实际调了几次）——细纲已经更新好了，由调用方把失败挂在章节上；b、c 失败
+ * （含转写没成）只记在结果里（a 记下的照样算数），取消照样抛出去。
  */
 export async function recordThreads(project: NovelProject, chapter: Chapter, opts: StepOpts): Promise<ThreadsOutcome> {
   const out: ThreadsOutcome = {
@@ -526,7 +726,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
     plan.length > 0 ? `【本章计划（这一章本来要干什么，只帮你认；正文没写到的不要列）】\n${plan.join('\n')}` : '',
     `【还没收束的叙事线】\n${lines.judged.map(judgeLine).join('\n') || '（还没有）'}`,
     `【还没收的伏笔】\n${fores.judged.map(judgeForeshadow).join('\n') || '（还没有）'}`,
-    '请按要求输出 JSON。',
+    '请按上面的格式写。',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -537,16 +737,24 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
     log.warn(`第 ${no} 章正文超出输入预算，认叙事线时已截断`, `${text.length} 字 → ${body.length} 字`);
   }
 
-  // a. 认事件。
-  out.calls = 1;
-  const found = await askJsonObject(
-    opts,
-    `第 ${no} 章 · 叙事线`,
-    THREAD_FIND_SYSTEM,
-    `【第${no}章 ${chapter.title}】\n\n${body}\n\n${rest}`,
-    0.2,
-    '叙事线事件'
-  );
+  // a. 认事件（2026-10-25 起按三节写、再转写）。三次共用一个转写调用（「转写」那一档的池只建一次）。
+  const step: StepOpts = { ...opts, transcribe: transcriberOf(opts) };
+  const tally = (n: number): void => {
+    out.calls += n;
+  };
+  const asked = await askTranscribed(step, {
+    label: `第 ${no} 章 · 叙事线`,
+    system: THREAD_FIND_SYSTEM,
+    user: `【第${no}章 ${chapter.title}】\n\n${body}\n\n${rest}`,
+    temperature: 0.2,
+    what: '叙事线事件',
+    spec: findSpec(no),
+    tally,
+  });
+  if (!asked.ok) {
+    throw new ThreadsFindError(asked.error, out.calls);
+  }
+  const found = asked.value;
   // 证据对的是整章正文（不是截过的那一截）：截掉的后半章里的原句同样是正文。
   let finds = verifyFinds(found, { chapter: no, text, judged: lines.judged, book });
   out.dropped = [...finds.dropped];
@@ -561,7 +769,6 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   // 模型只能看字面，约一半并错——「沈默脸上的尸斑」并进了「阿婆的尸斑右臂」）；伏笔的候选只有还没收的那几条。
   const openFore = openForeshadowing(book, no);
   if ((finds.newThreads.length > 0 && book.threads.length > 0) || (finds.newForeshadowing.length > 0 && openFore.length > 0)) {
-    out.calls += 1;
     try {
       const user = [
         finds.newThreads.length > 0 ? `【新认出的叙事线】\n${finds.newThreads.map((t) => `- ${t.name}（${t.kind}）${t.intent}`).join('\n')}` : '',
@@ -572,11 +779,24 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
           ? `【新认出的伏笔】\n${finds.newForeshadowing.map((f) => `- ${f.name}（挂在「${f.line ?? UNFILED_NAME}」）是什么：${f.what || '（没写）'}`).join('\n')}`
           : '',
         finds.newForeshadowing.length > 0 ? `【已有的伏笔（还没收的）】\n${openFore.map(mergeCandidate).join('\n')}` : '',
-        '请按要求输出 JSON。',
+        '请按上面的格式写。',
       ]
         .filter(Boolean)
         .join('\n\n');
-      const merged = await askJsonObject(opts, `第 ${no} 章 · 叙事线归并`, THREAD_MERGE_SYSTEM, user, 0.1, '归并结果');
+      // 一条都不并（写「无」）不转写；转写没成照原来解析不出来的走法：记 mergeError，新认出的照新的建。
+      const asked = await askTranscribed(step, {
+        label: `第 ${no} 章 · 叙事线归并`,
+        system: THREAD_MERGE_SYSTEM,
+        user,
+        temperature: 0.1,
+        what: '归并结果',
+        spec: mergeSpec(no),
+        tally,
+      });
+      if (!asked.ok) {
+        throw new Error(asked.error);
+      }
+      const merged = asked.value;
       // 复跑之后更保守：没给理由的、伏笔名一个相同的词都没有的不并（照新的建），记一笔日志。
       const rejected: { what: string; why: string }[] = [];
       const verified = verifyMerges(Array.isArray(merged.merges) ? merged.merges : [], finds, book, no, rejected);
@@ -606,7 +826,7 @@ export async function recordThreads(project: NovelProject, chapter: Chapter, opt
   await writeFinds(project, finds, no, text, out);
   // 认出来的落了盘，这一章就算判过（四期）：推水位。放在当前进度之前——那一次没成、被取消，认出来的也已经在线里了。
   await noteThreadsJudged(project, no);
-  await updateProgress(project, chapter, out, opts);
+  await updateProgress(project, chapter, out, step);
 
   log.info(
     `第 ${no} 章的叙事线已处理`,
@@ -823,10 +1043,24 @@ async function updateProgress(project: NovelProject, chapter: Chapter, out: Thre
     `【第${no}章 ${chapter.title}】\n\n` +
     (people.length > 0 ? `【人物】\n${people.join('\n')}\n\n` : '') +
     body +
-    '\n\n请按要求输出 JSON。';
-  out.calls += 1;
+    '\n\n请按上面的格式写。';
   try {
-    const answer = await askJsonObject(opts, `第 ${no} 章 · 叙事线当前进度`, THREAD_PROGRESS_SYSTEM, user, 0.3, '当前进度');
+    const asked = await askTranscribed(opts, {
+      label: `第 ${no} 章 · 叙事线当前进度`,
+      system: THREAD_PROGRESS_SYSTEM,
+      user,
+      temperature: 0.3,
+      what: '当前进度',
+      spec: progressSpec(no),
+      tally: (n) => {
+        out.calls += n;
+      },
+    });
+    // 转写没成照原来解析不出来的走法：记 progressError，认出来的照样算数。
+    if (!asked.ok) {
+      throw new Error(asked.error);
+    }
+    const answer = asked.value;
     const list = Array.isArray(answer.progress) ? answer.progress : [];
     const items = verifyProgress(list, send.map((t) => t.name));
     // 送去了却没写上的：说出来（第 2 条），日志里带上模型回的线名，看得出是没回还是名字对不上。

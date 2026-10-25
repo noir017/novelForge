@@ -4,7 +4,7 @@
  * | 断言 | 为什么 |
  * |---|---|
  * | 没有情节大纲时不调模型 | 第 4 条：没有东西可排就不花钱 |
- * | 确认框报 1 次调用与档位，说清已有的不动、主线已有就不再排 | 第 4 条：动手之前写明 |
+ * | 确认框报 2 次调用（排 1 次、转写 1 次，最多 3 次）与档位，说清已有的不动、主线已有就不再排 | 第 4 条：动手之前写明 |
  * | 一条线一个新文件，伏笔写在线下；已有的、作者写的一个字不动 | 第 3 条、第 19 条的批量路径 |
  * | 同名跳过；种类不是四种之一、主线重复、区间越界的不收，提示里分开说 | 设计稿：种类定死四种、主线全书一条；第 2 条 |
  * | 伏笔与全书已有的重名跳过，章号不合理的只去掉章号 | 同一样东西只有一份 |
@@ -203,16 +203,18 @@ describe('排叙事线', () => {
     user = call[call.length - 1].content;
   });
 
-  test('确认框报 1 次调用、哪一档，已有的不动、主线已有就不再排', () => {
-    assert.ok(confirm.message.includes('要从情节大纲排出叙事线，预计 1 次调用'), confirm.message);
+  // 2026-10-25 起排线也转写：排 1 次、转写 1 次，转写不合格重转 1 次；转写那一档单列一行。模型直接给了 JSON 就不转（这里只调 1 次）。
+  test('确认框报 2 次调用（最多 3 次）、哪一档、转写单列，已有的不动、主线已有就不再排', () => {
+    assert.ok(confirm.message.includes('要从情节大纲排出叙事线，预计 2 次调用，最多 3 次（排 1 次、转写模型照抄成 JSON 1 次'), confirm.message);
     assert.ok(confirm.call.tiers.join('\n').includes('剧情细纲'), confirm.call.tiers.join('\n'));
+    assert.ok((confirm.call.fixed ?? []).join('\n').includes('不跟这一次挑的模型'), JSON.stringify(confirm.call));
     assert.ok(confirm.detail.includes('已有的 1 条不会改动') && confirm.detail.includes('主线已经有了'), confirm.detail);
     assert.equal(returned, 1);
     assert.equal(fake.callCount(), 1);
   });
 
   test('提示里有配置、前提、角色图谱（含暗设，老卡的「未收伏笔」不读）、情节大纲、已有的线与伏笔；不读细纲', () => {
-    assert.ok(system.includes('1..20 范围内的整数'), system);
+    assert.ok(system.includes('1–20 之间的整数'), system);
     assert.ok(system.includes('已经有了，这一次不要再排主线'), system);
     for (const s of ['少年背着旧案入宗', '谁放的那把火', '与沈青从猜忌到并肩', '- 沈青（青云宗外门弟子）', '与林昭互相猜忌', '暗设（读者还不知道）：她是沈家遗孤']) {
       assert.ok(user.includes(s), s);

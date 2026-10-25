@@ -1,10 +1,11 @@
 /**
  * 从已写正文补记叙事线（叙事线重做四期，设计稿「九、补记已经写了的书」）：拆书导入的书、「从已写正文补齐」整理出来的书、
  * 定稿时叙事线没判成的章——定稿过了，线上却没有它们的事件。从 `project.json` 的水位（`threadsThrough`）之后、到最后一个定稿过的
- * 章，**按章号串行**逐章走定稿第三步（认事件 → 归并 → 当前进度，每章 1–3 次；finalizeSteps.ts 的 `judgeChapterThreads`）。
+ * 章，**按章号串行**逐章走定稿第三步（认事件 → 归并 → 当前进度，每章写 1–3 次、每次写完转写 1 次，`THREADS_JUDGE_CALLS`；
+ * finalizeSteps.ts 的 `judgeChapterThreads`）。
  *
  * ```
- * （一条线都没有、有情节大纲：先排线，1 次，没排成不挡补记）
+ * （一条线都没有、有情节大纲：先排线，排 1 次、转写 1 次，没排成不挡补记）
  * 第 a 章 → 认事件 / 归并 / 当前进度 → 推水位 → 第 a+1 章 → …… → 定稿到的最后一章
  * ```
  *
@@ -13,7 +14,7 @@
  *   列出来（先定稿，定稿时会一并判）；它们挡在水位前面，后面判过的记在 `threadsJudged`，定稿了它们水位就一口气推过去。
  * - ⚑ **一章没判成就停**（认事件没成）：后一章要看前一章，系统性的失败（模型挂了）也不会把几十章白调一遍。已判的留着，水位停在
  *   没判成的那一章前面，失败挂在那一章上（第 16 条），再点一次从那一章接着判。当前进度、归并没成不停（认出来的照样记下，黄 ❗）。
- * - ⚑ **还没有一条线、有情节大纲时先排线**（照批量拆细纲「一条线都没有先排一次」，设计稿 ⚑8）：排线算进同一个确认框（+1 次），
+ * - ⚑ **还没有一条线、有情节大纲时先排线**（照批量拆细纲「一条线都没有先排一次」，设计稿 ⚑8）：排线算进同一个确认框（`THREAD_PLAN_CALLS`），
  *   没排成不挡补记（线照样能从正文里认出来，完成提示说一句）。没有情节大纲就不排：线全靠从正文里认。
  * - 走「定稿」档（`plotSummary`）的池，同立即同步、写完即定稿；排线走「剧情细纲」档（`plotOutline`）。不带思考深度（第 26 条）。
  *
@@ -48,7 +49,7 @@ export interface ThreadsBackfillPlan {
   chapters: Chapter[];
   /** 水位之后、定稿到之前，这一次判不了的章（没定稿、定稿之后正文又改过），按章号。 */
   skipped: { no: number; why: string }[];
-  /** 一条线都没有、有（或这一次会有）情节大纲：先排线（+1 次）。 */
+  /** 一条线都没有、有（或这一次会有）情节大纲：先排线（加 `THREAD_PLAN_CALLS`）。 */
   planFirst: boolean;
   /** 开始之前的水位。 */
   through: number;
@@ -258,19 +259,19 @@ export async function backfillThreads(project: NovelProject): Promise<number> {
   const answer = await askCall({
     message:
       `从已写正文补记叙事线：${where}同步过、叙事线还没判，逐章认这一章在叙事线上发生了什么（每章 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次）` +
-      `${plan.planFirst ? '；还没有一条叙事线，先从情节大纲排一次（1 次）' : ''}，${describeCalls(plan.calls)}。现在补记？`,
+      `${plan.planFirst ? '；还没有一条叙事线，先从情节大纲排一次（排 1 次、转写 1 次）' : ''}，${describeCalls(plan.calls)}。现在补记？`,
     actions: ['开始补记'],
     detail: [
       `共 ${n} 章，按章号一章一章往后判（后一章要看前一章记下的事件与新认出的线），可以随时停下，已经判过的留着；一章没判成就停在那里，再点一次从那一章接着判。`,
       `每章：${THREADS_JUDGE_CALLS.why}。只往 ${rel}/ 里追加带原文证据的事件、正文里认出的新线与新伏笔；当前进度由机器维护，你改过的不写；已有的一个字不动。`,
-      plan.planFirst ? '还没有一条叙事线：先从情节大纲排一次（1 次，算在上面的数里；没排成不挡补记，线照样能从正文里认出来）。' : '',
+      plan.planFirst ? '还没有一条叙事线：先从情节大纲排一次（排 1 次、转写 1 次，算在上面的数里；没排成不挡补记，线照样能从正文里认出来）。' : '',
       plan.skipped.length > 0
         ? `${plan.skipped.map((s) => `第 ${s.no} 章${s.why}`).slice(0, 8).join('、')}${plan.skipped.length > 8 ? ` 等 ${plan.skipped.length} 章` : ''}，这一次不判——先同步，同步时会一并判。`
         : '',
     ]
       .filter(Boolean)
       .join('\n'),
-    tasks: plan.planFirst ? ['plotOutline', 'plotSummary'] : ['plotSummary'],
+    tasks: plan.planFirst ? ['plotOutline', 'plotSummary', 'transcribe'] : ['plotSummary', 'transcribe'],
     // 认事件带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
   });

@@ -61,17 +61,23 @@ export function poolIO(
 }
 
 /**
- * 「转写」那一档的池（2026-10-25 细纲试点；model/tiers.ts：不跟确认框上为这一次挑的模型，那一档没配就沿用默认模型），
- * 第一次用到时才建——只有细纲要转写。建不出来（一个可用的模型都没有）是 undefined，调用方退回干活那个模型并说一声。
+ * 「转写」那一档的池（2026-10-25 起；model/tiers.ts：不跟确认框上为这一次挑的模型，那一档没配就沿用默认模型），
+ * 第一次用到时才建。建不出来（一个可用的模型都没有）是 undefined，调用方退回干活那个模型并说一声。
  */
 export function lazyTranscriber(): () => Promise<ModelPool | undefined> {
   let pool: Promise<ModelPool | undefined> | undefined;
   return () => (pool ??= createModelPool({ task: 'transcribe', concurrent: false }));
 }
 
+/** 转写退回用的那一个：模型池，或定稿时传进来的单个模型（finalizeSteps.ts 的 `ModelRunner`）——转写只用到这两样。 */
+export interface TranscribeFallback {
+  run<T>(what: string, fn: (llm: LlmProvider) => Promise<T>): Promise<T>;
+  readonly primaryBudget: ModelPool['primaryBudget'];
+}
+
 /**
  * 工程页任务（定稿、叙事线、角色卡、设定……）的转写调用（features/transcribe.ts 的 `TranscribeCall`）：走「转写」那一档，
- * 第一次用到时才建池。那一档一个可用的模型都没有时用 `fallback`（干活那个池）并说一声；连它也没有就报错——
+ * 第一次用到时才建池。那一档一个可用的模型都没有时用 `fallback`（干活那个池或模型）并说一声；连它也没有就报错——
  * `transcribeJson` 把它当成转写调用失败，写好的原文照这一步原来解析失败的走法处理。
  * `fallback` 只要能 `run`、有窗口就行（{@link TranscribeFallback}）：单章同步缺省用对话页那一个模型（features/finalize.ts 的
  * `singleModel`），不是池。
@@ -90,12 +96,6 @@ export function poolTranscriber(signal: AbortSignal, fallback?: TranscribeFallba
     const r = await transcribeWith(pool ?? fallback!, messages, label, timeoutMs, signal);
     return { text: r.text, stop: r.stopReason };
   };
-}
-
-/** 转写退回时用的那一个：能 `run`、有窗口就行。池、单个模型（features/finalizeSteps.ts 的 `ModelRunner`）都是。 */
-export interface TranscribeFallback {
-  run<T>(what: string, fn: (llm: LlmProvider) => Promise<T>): Promise<T>;
-  readonly primaryBudget: { contextWindow: number; maxOutputTokens: number };
 }
 
 /** 转写一次：照抄，温度 0、不带思考，输出上限用转写模型自己的。失败照池的规矩换同档其余。 */

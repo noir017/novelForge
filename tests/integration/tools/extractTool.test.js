@@ -97,7 +97,7 @@ describe('排叙事线：转发给工程页那个动作', () => {
   });
 
   test('确认框写着从情节大纲排、预计调用几次', () => {
-    assert.match(h.confirms.at(-1).message, /^要从情节大纲排出叙事线，预计 1 次调用/);
+    assert.match(h.confirms.at(-1).message, /^要从情节大纲排出叙事线，预计 2 次调用，最多 3 次/);
   });
 
   test('作者取消：一次模型都不调，账上也不记', () => {

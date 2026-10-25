@@ -23,7 +23,7 @@ import { describeError, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Chapter, SummaryCast } from '../model/types';
 import { STATE_OP, StateUpdateOutcome, stateCallsOf, updateCharacterStates } from './characterState';
-import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
+import { THREADS_OP, ThreadsFindError, ThreadsOutcome, recordThreads } from './threads';
 import { TimeResult, recordChapterTime } from './storyTime';
 import { poolTranscriber } from './poolIO';
 import { TranscribeCall } from './transcribe';
@@ -124,7 +124,7 @@ export async function updateStateAndThreads(
 
 /** {@link judgeChapterThreads} 的结果。 */
 export interface ThreadsStep {
-  /** 实际调了几次模型（认事件没成也算那 1 次：请求发出去了）。 */
+  /** 实际调了几次模型（认事件没成也算那 1 次：请求发出去了；写了、转写没成的连转写那几次）。 */
   calls: number;
   threads?: ThreadsOutcome;
   /** 认事件没成（叙事线没动，这一章没判过）。 */
@@ -132,7 +132,7 @@ export interface ThreadsStep {
 }
 
 /**
- * 叙事线走一章（定稿第三步，1–3 次）：认事件 → 归并 → 当前进度（features/threads.ts 的 `recordThreads`）。认出来的落了盘，这一章
+ * 叙事线走一章（定稿第三步，写 1–3 次，2026-10-25 起每次写完再转写 1–2 次）：认事件 → 归并 → 当前进度（features/threads.ts 的 `recordThreads`）。认出来的落了盘，这一章
  * 就算判过、推水位（四期，在 `recordThreads` 里）；当前进度、归并没成或有几条线没写上，认出来的照样记下，黄 ❗ 挂在章节上（部分完成）；认事件没成，叙事线
  * 不动，黄 ❗ 挂在章节上（第 16 条）。整步都成了才清。取消照样抛出去。
  *
@@ -199,7 +199,7 @@ export async function judgeChapterThreads(
             detail: '叙事线没有改动，水位停在这一章前面。在叙事线页签再点一次「从正文补记」，会从这一章接着判；重新同步这一章也会判。',
           }
     );
-    // 请求发出去了钱就花了：认事件没成也记一次。
-    return { calls: 1, threadsError };
+    // 请求发出去了钱就花了：认事件没成也记一次；写了、转写没成的（2026-10-25 起）连转写那几次照实记。
+    return { calls: err instanceof ThreadsFindError ? err.calls : 1, threadsError };
   }
 }

@@ -33,6 +33,7 @@
 import { el as mk } from '../../dom';
 import { commandThreadsOverview, commandTimelineOverview, queryThreadsOverview, queryTimelineOverview } from '../../globals';
 import type { MenuItem } from '../../globals';
+import { THREAD_PLAN_CALLS, THREADS_JUDGE_CALLS } from '../../protocol';
 import type { ProjectTree, ThreadLineView, ThreadUnfiledView, TimelineChapterView, TimelineGroupView, TimelineSegmentView } from '../../protocol';
 import { linkBtn } from '../buttons';
 import { onContextMenu } from '../menu';
@@ -128,12 +129,12 @@ export function threadsHead(tree: ProjectTree): HTMLElement | undefined {
   if (canBackfill(tree) && !hasTask(BACKFILL_TASK)) {
     const btn = linkBtn('从正文补记', () => projectAction('backfillThreads'));
     btn.classList.add('threads-backfill-btn');
-    btn.title = `从已写正文补记叙事线：${tree.threads.lag!.text}，逐章认这一章在叙事线上发生了什么（先弹确认框，每章调用模型 1–3 次）；已有的不动，只往线里追加`;
+    btn.title = `从已写正文补记叙事线：${tree.threads.lag!.text}，逐章认这一章在叙事线上发生了什么（先弹确认框，每章调用模型 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次，含转写）；已有的不动，只往线里追加`;
     box.appendChild(btn);
   }
   if (canPlan(tree) && !hasTask(PLAN_TASK)) {
     const btn = linkBtn(planVerb(tree), () => projectAction('generateThreads'));
-    btn.title = '从情节大纲排叙事线（先弹确认框，调用模型 1 次）；已有的线不动，同名跳过';
+    btn.title = `从情节大纲排叙事线（先弹确认框，调用模型 ${THREAD_PLAN_CALLS.low} 次：排 1 次、转写 1 次）；已有的线不动，同名跳过`;
     box.appendChild(btn);
   }
   if (canOverview(tree)) {

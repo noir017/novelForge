@@ -7,7 +7,7 @@
  * 二、配置 → 前提 → 角色卡 → 世界观（只补空白）     ← 第二次确认：细纲出来之后次数才算得准
  *     → 设定条目（还一条都没有时，从名录建）
  *     → 全文大纲（落后就增量更新）
- *     → 叙事线（一条线都没有时先从情节大纲排一次；再从水位之后逐章补记，每章 1–3 次）
+ *     → 叙事线（一条线都没有时先从情节大纲排一次；再从水位之后逐章补记，每章写 1–3 次、每次写完转写 1 次）
  * ```
  *
  * 第一步就是定稿的第一步（`summarizeChapters`）：照正文写出 `summaries/NNN-<章名>.md`，带 `sourceHash`
@@ -39,7 +39,7 @@
  *
  * 第一步整理出来的细纲直接算定稿过，可定稿第三步（认叙事线）没走——这些章「定稿了、叙事线还没判」。最后接上
  * 「排线 + 补记」（features/threadsBackfill.ts，与工程页「从正文补记」同一份）：一条线都没有、有情节大纲（细纲整理出来了就有），
- * 先从情节大纲排一次；再从水位之后逐章补记到第 N 章。次数并进第二个确认框（每章 1–3 次，排线 +1）。它与设定条目、全文大纲
+ * 先从情节大纲排一次；再从水位之后逐章补记到第 N 章。次数并进第二个确认框（`threadsBackfillCalls`：每章写 1–3 次、各转写 1 次，排线 2 次）。它与设定条目、全文大纲
  * 一样是额外的一道：排在最后，没排成、一章没判成都不算补齐失败（补记停在没判成的那一章、失败挂在那一章上，完成提示说一句），
  * 已经判过的留着，之后在叙事线页签点「从正文补记」接着来。
  *
@@ -542,6 +542,8 @@ function tasksOf(plan: DerivePlan): LlmTask[] {
     ...(plan.cards || plan.lore ? ['transcribe' as const] : []),
     ...(plan.threads?.planFirst ? ['plotOutline' as const] : []),
     ...(plan.globalSummary || plan.threads ? ['plotSummary' as const] : []),
+    // 叙事线那几次写完都由转写模型照抄成 JSON（2026-10-25）。
+    ...(plan.threads ? ['transcribe' as const] : []),
   ];
 }
 
@@ -574,7 +576,7 @@ function describePlan(plan: DerivePlan, through: number): string {
   if (plan.threads) {
     const t = plan.threads;
     lines.push(
-      `叙事线：${t.planFirst ? '还没有一条线，先从情节大纲排一次（1 次）；再' : ''}逐章认${describeChapterRuns(t.chapters.map((c) => c.order))}在叙事线上发生了什么` +
+      `叙事线：${t.planFirst ? '还没有一条线，先从情节大纲排一次（排 1 次、转写 1 次）；再' : ''}逐章认${describeChapterRuns(t.chapters.map((c) => c.order))}在叙事线上发生了什么` +
         `（${t.chapters.length} 章，每章 ${THREADS_JUDGE_CALLS.low}–${THREADS_JUDGE_CALLS.high} 次，按章号串行）；一章没判成就停在那里，不算补齐失败，之后在叙事线页签点「从正文补记」接着来。`
     );
   }

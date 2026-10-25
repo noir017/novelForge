@@ -451,8 +451,9 @@ describe('批量拆细纲 · 一条叙事线都没有', () => {
   });
 
   test('确认框把先排的那一次算进去，说清没排成不挡拆细纲', () => {
-    assert.ok(confirm?.message.includes('要拆 1 章细纲，分 1 批，预计 3 次调用，最多 6 次'), confirm?.message);
-    assert.ok(confirm.detail.includes('还没有一条叙事线：开拆之前先从情节大纲排一次'), confirm.detail);
+    // 排线 2 次（排 1、转写 1；最多 3）+ 一批 1 章 2 次（最多 5）：2026-10-25 起排线也转写。
+    assert.ok(confirm?.message.includes('要拆 1 章细纲，分 1 批，预计 4 次调用，最多 8 次'), confirm?.message);
+    assert.ok(confirm.detail.includes('还没有一条叙事线：开拆之前先从情节大纲排一次（排 1 次、转写 1 次'), confirm.detail);
   });
 
   test('先排线、再拆细纲；返回两次', () => {

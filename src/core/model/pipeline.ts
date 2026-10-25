@@ -971,21 +971,29 @@ export const SUMMARIZE_CALLS: CallEstimate = {
 
 /**
  * 叙事线判一章（定稿第三步，叙事线重做四期「从已写正文补记」按章走它）：认事件 1 次，有线动过时更新当前进度 1 次，认出新线或
- * 新伏笔时归并 1 次。
+ * 新伏笔时归并 1 次。2026-10-25 起这几次都改成转写：每写一次，转写模型照抄成 JSON 1 次，不合格重转 1 次（什么都没认出、
+ * 一条都不并时写的是「无」，不转写，只会更少）。
  */
 export const THREADS_JUDGE_CALLS: CallEstimate = {
-  low: 1,
-  high: 3,
-  max: 3,
-  why: '认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次',
+  low: 2,
+  high: 6,
+  max: 9,
+  why: '认事件写 1 次，有线动过时写当前进度 1 次，认出新线或新伏笔时写归并 1 次；每写一次转写模型照抄成 JSON 1 次，转写不合格重转 1 次',
 };
 
-/** 从已写正文补记 `n` 章叙事线：每章 {@link THREADS_JUDGE_CALLS}；一条线都没有、先从情节大纲排一次时 +1。 */
+/**
+ * 从情节大纲排叙事线（工程页「从大纲排出」、批量拆细纲与补记在一条线都没有时先排的那一次）：排 1 次、转写 1 次；
+ * 转写不合格重转 1 次（2026-10-25 起改成转写，从前 1 次）。
+ */
+export const THREAD_PLAN_CALLS: CallEstimate = { low: 2, high: 2, max: 3, why: '排 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次' };
+
+/** 从已写正文补记 `n` 章叙事线：每章 {@link THREADS_JUDGE_CALLS}；一条线都没有、先从情节大纲排一次时加 {@link THREAD_PLAN_CALLS}。 */
 export function threadsBackfillCalls(n: number, planFirst: boolean): CallEstimate {
+  const plan = planFirst ? THREAD_PLAN_CALLS : { low: 0, high: 0, max: 0 };
   return {
-    low: n * THREADS_JUDGE_CALLS.low + (planFirst ? 1 : 0),
-    high: n * THREADS_JUDGE_CALLS.high + (planFirst ? 1 : 0),
-    max: n * THREADS_JUDGE_CALLS.max + (planFirst ? 1 : 0),
+    low: n * THREADS_JUDGE_CALLS.low + plan.low,
+    high: n * THREADS_JUDGE_CALLS.high + plan.high,
+    max: n * THREADS_JUDGE_CALLS.max + plan.max,
   };
 }
 
@@ -1296,7 +1304,7 @@ export function planPlotBatches(input: {
   from: number;
   to: number;
   filledNos: readonly number[];
-  /** 一条叙事线都还没有：开拆之前先从情节大纲排一次（设计稿 ⚑8，+1 次）。 */
+  /** 一条叙事线都还没有：开拆之前先从情节大纲排一次（设计稿 ⚑8，加 {@link THREAD_PLAN_CALLS}）。 */
   planThreads?: boolean;
 }): PlotBatchPlan {
   const from = Math.max(1, Math.floor(Math.min(input.from, input.to)));
@@ -1325,8 +1333,8 @@ export function planPlotBatches(input: {
     }
   }
   flush();
-  // 一条叙事线都还没有时，开拆之前先从情节大纲排一次，算 1 次（没有要拆的就不排）。
-  const threads = batches.length > 0 && input.planThreads === true ? ONE_CALL : { low: 0, high: 0, max: 0 };
+  // 一条叙事线都还没有时，开拆之前先从情节大纲排一次（排 1 次、转写 1 次，没有要拆的就不排）。
+  const threads = batches.length > 0 && input.planThreads === true ? THREAD_PLAN_CALLS : { low: 0, high: 0, max: 0 };
   const calls = batches.map((b) => blueprintCalls(b.length)).reduce(addCalls, threads);
   return { from, to, chapters, skipped, batches, calls };
 }
