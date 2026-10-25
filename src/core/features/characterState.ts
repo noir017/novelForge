@@ -16,6 +16,9 @@
  *
  * 写卡**只动那一节与两个 frontmatter 字段**（`patchCardState`）：整卡重渲染会抹掉作者自加的
  * 小节。这里不走覆盖审阅——归属判据就是那道闸（与批量路径「只补空白」同一个理由）。
+ *
+ * 2026-10-25 起改成转写：模型一人一节「## 人物名」写自然语言，转写模型照抄成原来那份 `{"updates":[…]}`
+ * （{@link parseStateUpdates} 照旧解码）。只写了「无」（或「本章没有人的状态变了」这种短短一句）的不转，没有人的状态变了。
  */
 import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
@@ -33,12 +36,32 @@ import { estimateTokens, takeHead } from '../context/tokenizer';
 import { cardLookup } from '../views/cast';
 import { Workspace } from '../workspace';
 import { extractJsonObject, stripCodeFence } from './parse';
-import { STATE_SYSTEM } from './characterCardPrompt';
+import { STATE_JSON_CONTRACT, STATE_SYSTEM } from './characterCardPrompt';
+import { TranscribeCall, transcribeJson } from './transcribe';
+import { poolTranscriber } from './poolIO';
 
 const log = scoped('角色卡');
 
 /** 失败记录的 op：作者改过的状态没被覆盖、以及这一步调用失败，都记在它名下。 */
 export const STATE_OP = 'cardState';
+
+/**
+ * 角色状态没更新成（模型的回答读不出来、转写没成）。带着这一步已经调了几次（写 1 次，加上转写的），定稿照它记账。
+ */
+export class StateUpdateError extends Error {
+  constructor(
+    message: string,
+    readonly calls: number
+  ) {
+    super(message);
+    this.name = 'StateUpdateError';
+  }
+}
+
+/** 角色状态那一步没成时调了几次：读不出来的带着实数，别的错（网络、超时）是写的那 1 次。 */
+export function stateCallsOf(err: unknown): number {
+  return err instanceof StateUpdateError ? err.calls : 1;
+}
 
 export interface StateUpdateOutcome {
   /** 调了几次模型：出场的人都没建卡时是 0。 */
@@ -59,7 +82,7 @@ export interface StateUpdateOutcome {
  * 更新本章出场角色的当前状态。
  *
  * `run` 决定怎么调模型：单章入口直接用对话页选定的那个；批量入口传分档池（失败换同档其余，
- * 第 12 条）。调用失败或返回解析不出来时抛错——细纲已经更新好了，由调用方把失败挂在章节上。
+ * 第 12 条）。调用失败或返回解析不出来（转写没成）时抛错——细纲已经更新好了，由调用方把失败挂在章节上。
  */
 export async function updateCharacterStates(
   project: NovelProject,
@@ -69,6 +92,8 @@ export async function updateCharacterStates(
     run: <T>(what: string, fn: (llm: LlmProvider) => Promise<T>) => Promise<T>;
     budget: { contextWindow: number; maxOutputTokens: number };
     signal?: AbortSignal;
+    /** 转写那一次怎么调（2026-10-25 起）。缺省走「转写」那一档，那一档没有可用的模型时用 `run` 那一个。 */
+    transcribe?: TranscribeCall;
   }
 ): Promise<StateUpdateOutcome> {
   const out: StateUpdateOutcome = { calls: 0, updated: [], carried: [], guarded: [], newer: [], unknown: [] };
@@ -102,7 +127,7 @@ export async function updateCharacterStates(
   }
   const user =
     `【第${chapter.order}章 ${chapter.title}】\n\n${body}\n\n` +
-    `【本章出场、已经建档的人物】\n${roster}\n\n请按要求输出 JSON。`;
+    `【本章出场、已经建档的人物】\n${roster}\n\n请按要求写。`;
   const options: StreamOptions = {
     maxOutputTokens: opts.budget.maxOutputTokens,
     temperature: 0.3,
@@ -122,10 +147,17 @@ export async function updateCharacterStates(
       )
     )
   );
-  const updates = parseStateUpdates(raw);
-  if (!updates) {
-    throw new Error('模型返回的角色状态解析不出来');
+  const transcribe =
+    opts.transcribe ?? poolTranscriber(opts.signal ?? new AbortController().signal, { run: opts.run, primaryBudget: opts.budget });
+  const read = await readStateUpdates(raw, present, transcribe, chapter.order);
+  out.calls = 1 + read.calls;
+  if (read.notes.length > 0) {
+    log.warn(`第 ${chapter.order} 章角色状态的转写不顺`, read.notes.join('\n'));
   }
+  if (!read.updates) {
+    throw new StateUpdateError(`模型返回的角色状态解析不出来（${read.why}）`, out.calls);
+  }
+  const updates = read.updates;
 
   const ws = new Workspace(project);
   const touched = new Set<string>();
@@ -202,6 +234,48 @@ const PROPOSAL = /【第 (\d+) 章给出的当前状态】\n([\s\S]*?)(?:\n\n右
 export function proposalOf(detail: string | undefined): { no: number; state: string } | undefined {
   const m = PROPOSAL.exec(detail ?? '');
   return m ? { no: Number(m[1]), state: m[2].trim() } : undefined;
+}
+
+/** 「无」「本章没有人的状态变了」这种短短一句（名单上的名字一个都没提）：没有人的状态变了。 */
+const NOTHING = /无|没有/u;
+const NOTHING_MAX_CHARS = 40;
+
+/**
+ * 模型的回答 → 各人的新状态（2026-10-25 起改成转写）：模型自己给了 JSON（老会话、测试里的假模型）照原来的解码、不转；只写了「无」
+ * （或「本章没有人的状态变了」这种短短一句）的是没人变、不转；一个名单上的名字都没有的（答非所问）不花转写那一次；其余转写模型照抄成 `{"updates":[…]}`。
+ * 读不出来、转写没成交回 `why`。
+ */
+async function readStateUpdates(
+  raw: string,
+  present: readonly CharacterCard[],
+  transcribe: TranscribeCall,
+  no: number
+): Promise<{ updates?: { name: string; state: string }[]; why: string; calls: number; notes: string[] }> {
+  const direct = parseStateUpdates(raw);
+  if (direct) {
+    return { updates: direct, why: '', calls: 0, notes: [] };
+  }
+  const names = present.flatMap((c) => [c.name, ...c.aliases]).filter((n) => n.trim().length > 0);
+  const text = stripCodeFence(raw).trim();
+  if ([...text].length <= NOTHING_MAX_CHARS && NOTHING.test(text) && !names.some((n) => text.includes(n))) {
+    return { updates: [], why: '', calls: 0, notes: [] };
+  }
+  const r = await transcribeJson(
+    raw,
+    {
+      label: `第 ${no} 章角色状态`,
+      contract: STATE_JSON_CONTRACT,
+      decode: (json) => {
+        const updates = parseStateUpdates(json);
+        return updates ? { ok: true, value: updates } : { ok: false, message: '没有 updates 这一项' };
+      },
+      looksLike: (source) => names.some((n) => source.includes(n)),
+    },
+    transcribe
+  );
+  return r.ok
+    ? { updates: r.value, why: '', calls: r.calls, notes: r.notes }
+    : { why: r.calls > 0 ? `转写没成：${r.message}` : r.message, calls: r.calls, notes: r.notes };
 }
 
 /**

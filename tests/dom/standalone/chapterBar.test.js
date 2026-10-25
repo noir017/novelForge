@@ -58,8 +58,9 @@ describe('章节条', { skip: JSDOM_SKIP }, () => {
 
   test('提示里写调用次数（与主按钮同一个数）', () => {
     assert.match(btn('continue').title, /预计 1–2 次调用，最多 9 次/);
-    // 定稿 = 照正文更新细纲 + 出场角色的当前状态（D17）+ 叙事线 1–3 次（叙事线重做：认事件每次都跑）。
-    assert.match(btn('finalize').title, /预计 3–6 次调用/);
+    // 定稿 = 照正文更新细纲 + 出场角色的当前状态（D17）+ 叙事线 1–3 次（叙事线重做：认事件每次都跑）+ 故事时间；
+    // 2026-10-25 起每次写完都转写一次、不合格重转一次。
+    assert.match(btn('finalize').title, /预计 6–12 次调用，最多 18 次/);
   });
 
   test('点「接着写」发 chapterAction', () => {

@@ -696,7 +696,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   // 定稿 = 照正文更新细纲（带连续性事实）+ 出场角色的当前状态（四期）+ 叙事线（七期），
   // 菜单上写着调用次数（D17）。
   test('没定稿的章给「定稿（细纲 + 角色状态 + 叙事线）」并写着调用次数', () => {
-    assert.ok(legacyItems.includes('同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 3–6 次调用）'), JSON.stringify(legacyItems));
+    assert.ok(legacyItems.includes('同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 6–12 次调用，最多 18 次）'), JSON.stringify(legacyItems));
     assert.ok(!legacyItems.includes('重新同步'), JSON.stringify(legacyItems));
     // 没定稿的章「设定」一节是计划，记了也会被定稿冲掉：不给单独记设定。
     assert.ok(!legacyItems.includes('记设定（预计 2 次调用，最多 3 次）'), JSON.stringify(legacyItems));
@@ -708,7 +708,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   test('「定稿」发 askFinalizeChapter，带的是章节路径', () => {
-    ui.pick(ui.rightClick(plotRow('入镇')), '同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 3–6 次调用）');
+    ui.pick(ui.rightClick(plotRow('入镇')), '同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 6–12 次调用，最多 18 次）');
     const msg = ui.last('projectAction');
     assert.equal(msg?.action, 'askFinalizeChapter', JSON.stringify(msg));
     assert.equal(msg?.relPath, 'chapters/002-入镇.md', JSON.stringify(msg));
@@ -730,7 +730,7 @@ describe('工程页的右键菜单', { skip: JSDOM_SKIP }, () => {
   });
 
   // 定稿、草稿读的都是正文——没有正文就无从谈起。
-  for (const label of ['重写正文', '重新同步', '同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 3–6 次调用）', '打开草稿', '新建草稿']) {
+  for (const label of ['重写正文', '重新同步', '同步（细纲 + 角色状态 + 叙事线 + 故事时间，预计 6–12 次调用，最多 18 次）', '打开草稿', '新建草稿']) {
     test(`没写正文的章菜单不含「${label}」`, () => {
       assert.ok(!planningItems.includes(label), JSON.stringify(planningItems));
     });

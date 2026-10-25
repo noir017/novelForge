@@ -55,7 +55,7 @@ import { checkpointBefore } from './checkpoint';
 import { thinLoreFor } from '../views/lore';
 import { threadReminders } from '../views/threads';
 import { confirmDespiteGap } from './chapterGap';
-import { updateGlobalSummary } from './summarize';
+import { summarizeCallsOf, updateGlobalSummary } from './summarize';
 import { PLOT_CHECK_SUGGESTION, describeConflict } from '../model/plotCheck';
 import { PREFLIGHT_SUGGESTION, PreflightRisk, describeExempted, describeRisks, describeThreadNotes, preflightChapter, riskKey } from './preflight';
 import { isArtifactEmpty, parseArtifact } from './artifact';
@@ -606,7 +606,9 @@ export async function writeManuscripts(
           : '',
         '每章写之前先比对一次细纲与前面同步下来的连续性事实（前面没同步过的章就不调）；对不上就停在那一章前面。',
         reviewing ? '每写完一章先审一遍，报告放进一个新会话「批量审稿」，在对话页逐章勾选修稿；审出问题不会停。' : '',
-        mode === 'finalize' ? '每写完一章就同步（照正文更新细纲 + 出场角色的当前状态 + 叙事线：认事件、更新当前进度、需要时归并），再写下一章。' : '只写正文，不同步；之后在主按钮上逐章同步。',
+        mode === 'finalize'
+          ? '每写完一章就同步（照正文更新细纲 + 出场角色的当前状态 + 叙事线：认事件、更新当前进度、需要时归并 + 故事时间），再写下一章；同步的每一次写完都由转写模型照抄成 JSON（算在上面的数里）。'
+          : '只写正文，不同步；之后在主按钮上逐章同步。',
         plan.globalSummaryAt.length > 0
           ? `第 ${plan.globalSummaryAt.join('、')} 章同步之后各更新一次全文大纲（落后 ${GLOBAL_SUMMARY_EVERY} 章就更新，每次 1 次调用）。`
           : '',
@@ -909,8 +911,8 @@ async function runWriteBatch(
               }
             }
           } catch (err) {
-            // 请求发出去了钱就花了：更新细纲那一次算上。
-            calls += 1;
+            // 请求发出去了钱就花了：更新细纲那一次算上（读不出来的带着写与转写的实数）。
+            calls += summarizeCallsOf(err);
             if (err instanceof CancelledError || signal.aborted) {
               log.warn(`批量写章被取消，${name}写好了、没同步`);
               return;

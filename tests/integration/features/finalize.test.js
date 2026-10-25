@@ -14,7 +14,7 @@
  * | 带着细纲也不多调：更新细纲仍是 1 次 | 调用次数和从前写摘要那一次一样（`FINALIZE_CALLS` 不变） |
  * | 机器的卡换上新状态、只动那一节 | D15；整卡重渲染会抹掉作者自加的小节 |
  * | 作者改过的卡不写、挂黄 ❗，对比后能采用或放弃 | 第 3 条：不静默覆盖 |
- * | 出场的人都没卡时只有细纲、认叙事线与故事时间那 3 次 | 第 4 条：预计 3–6 次，不白调 |
+ * | 出场的人都没卡时只有细纲、认叙事线与故事时间那 3 次 | 第 4 条：预计 6–12 次（写 3–6 次、转写 3–6 次；假模型直接给 JSON 不转），不白调 |
  * | 不回退到更早的章 | 重新定稿早前的章不该把状态倒回去 |
  * | 角色状态失败时细纲照样在，黄 ❗ 挂在章节上 | 第 16 条：部分完成 |
  */
@@ -472,9 +472,10 @@ describe('定稿：有细纲时照正文反向更新它', () => {
     assert.equal(outcome.calls, 4);
   });
 
-  test('定稿的次数估算：3–6 次（叙事线重做：认事件每次都跑；故事时间单独一次）', () => {
+  // 2026-10-25 起每一次写完都转写一次（low / high 翻倍），转写不合格各重转一次（max 再加一份）。
+  test('定稿的次数估算：写 3–6 次、转写 3–6 次，最多 18 次（叙事线重做：认事件每次都跑；故事时间单独一次）', () => {
     const { low, high, max } = bundle.pipeline.FINALIZE_CALLS;
-    assert.deepEqual({ low, high, max }, { low: 3, high: 6, max: 6 });
+    assert.deepEqual({ low, high, max }, { low: 6, high: 12, max: 18 });
   });
 
   test('再定稿一次：回收站里同名的旧版不被覆盖，新的一份加 -2', async () => {
@@ -580,7 +581,9 @@ describe('工程页章节右键「定稿」「重新定稿」：先问这一次�
   test('确认框报次数、只有一颗「重新定稿」；模型缺省是对话页那个，带详细度下拉框', () => {
     const [c] = h.confirms;
     assert.deepEqual(c.actions, ['重新同步']);
-    assert.match(c.message, /^重新同步第 1 章《.+》：.*预计 3–6 次调用。$/);
+    assert.match(c.message, /^重新同步第 1 章《.+》：.*预计 6–12 次调用，最多 18 次。$/);
+    // 转写那一档单列一行（不跟这一次挑的模型）。
+    assert.ok(c.call.fixed?.some((f) => f.startsWith('转写') && f.endsWith('（不跟这一次挑的模型）')), JSON.stringify(c.call));
     assert.equal(c.call.model, 'fake/m');
     assert.ok(c.call.contextDetail, JSON.stringify(c.call));
     assert.ok(c.call.models.some((m) => m.ref === 'fake/strong'), JSON.stringify(c.call.models));

@@ -88,7 +88,7 @@ import { settingKey, settingRaw } from './pipelineBatch';
 import { poolIO } from './poolIO';
 import { summarizeChapters, updateGlobalSummary } from './summarize';
 import { ThreadsBackfillPlan, describeBackfill, planThreadsBackfill, runThreadsBackfill } from './threadsBackfill';
-import { THREADS_JUDGE_CALLS } from '../model/pipeline';
+import { SUMMARIZE_CALLS, THREADS_JUDGE_CALLS } from '../model/pipeline';
 import { describeChapterRuns } from '../model/threadFile';
 
 const log = scoped('补齐');
@@ -148,15 +148,19 @@ async function summarizeFirst(
   through: number
 ): Promise<{ ok: boolean; calls: number; choice?: CallChoice; checkpoint?: string }> {
   const lanes = Math.min(readConfig().concurrency, stale.length);
+  const n = stale.length;
+  // 一章写 1 次、转写 1 次，转写不合格重转 1 次（2026-10-25 起改成转写）。
+  const estimate: CallEstimate = { low: n * SUMMARIZE_CALLS.low, high: n * SUMMARIZE_CALLS.high, max: n * SUMMARIZE_CALLS.max };
   const answer = await askCall({
-    message: `从已写正文补齐第 1–${through} 章：先照正文给 ${stale.length} 章整理细纲（没同步的、同步后正文改过的），调用 ${stale.length} 次模型。现在开始？`,
+    message: `从已写正文补齐第 1–${through} 章：先照正文给 ${n} 章整理细纲（没同步的、同步后正文改过的），${describeCalls(estimate)}。现在开始？`,
     actions: ['先整理细纲'],
     detail: [
+      `每章 ${SUMMARIZE_CALLS.low} 次，最多 ${SUMMARIZE_CALLS.max} 次（${SUMMARIZE_CALLS.why}）。`,
       lanes > 1 ? `并发 ${lanes} 路，各章之间没有先后依赖。` : '串行逐章处理（并发数为 1）。',
       '已经有细纲的章拿着它与正文对照着改，旧版先复制一份进 .novelforge/.trash/。',
       '细纲出来之后再算建卡与设定要调几次（建卡次数要看细纲里认出了谁），到时再问你一次。',
     ].join('\n'),
-    tasks: ['plotSummary'],
+    tasks: ['plotSummary', 'transcribe'],
     contextDetail: false,
   });
   if (answer?.action !== '先整理细纲') {
@@ -171,12 +175,14 @@ async function summarizeFirst(
     }
     let ok = false;
     let checkpoint: string | undefined;
+    let calls = 0;
     await runTask(
       '从已写正文补齐 · 细纲',
       async ({ signal, report }) => {
         // 先存一个存档点（features/checkpoint.ts）：一次改很多份细纲，整本退得回去。
         checkpoint = await checkpointBefore(project, '从已写正文补齐之前');
         const r = await summarizeChapters(project, stale, { pool, lanes, signal, report });
+        calls = r.calls;
         if (signal.aborted) {
           log.warn(`从已写正文补齐被取消，细纲完成 ${r.ok}/${stale.length} 章`);
           return;
@@ -192,7 +198,7 @@ async function summarizeFirst(
       },
       { scope: '补齐' }
     );
-    return { ok, calls: stale.length, choice: answer.choice, checkpoint };
+    return { ok, calls, choice: answer.choice, checkpoint };
   });
 }
 

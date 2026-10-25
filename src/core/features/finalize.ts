@@ -13,6 +13,9 @@
  *
  * 后几步读的都是第一步更新过的那份细纲（出场人物、时间地点）与正文。
  *
+ * 2026-10-25 起每一步都改成转写：干活的模型按格式写自然语言，「转写」那一档的模型照抄成原来那份 JSON（features/transcribe.ts）。
+ * 几步共用一个转写调用（{@link FinalizeOptions.transcribe}），转写那一档不跟确认框上为这一次挑的模型。
+ *
  * 前两步移植自 AI-Novel-Writer（GPL-3.0，源自 AI_NovelGenerator）`finalize-chapter.command.ts` 的
  * `buildFinalizePostProcessSteps`（FC:246-563）的后两步。知识库导入、定稿收据、来源 hash、
  * 项目租约不搬（总计划 §1 #14）。第三步上游不在定稿里（是叙事线编辑器里的一颗按钮），叙事线重做之后
@@ -45,6 +48,8 @@ import { FINALIZE_CALLS, describeCalls } from '../model/pipeline';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import { askCall } from './askCall';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall } from './transcribe';
 import { SummaryOutcome, summarizeChapter } from './summarize';
 import { ModelRunner, StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
 import { describeThreads } from './threads';
@@ -71,12 +76,17 @@ export interface FinalizeOptions {
   state?: ModelRunner;
   /** 叙事线那一步（认事件、当前进度、归并）与故事时间那一步用谁。缺省同更新细纲（读一章、按合同摘出东西，是同一种活）。 */
   threads?: ModelRunner;
+  /**
+   * 转写那一次怎么调（2026-10-25 起改成转写，几步共用）。缺省走「转写」那一档（features/poolIO.ts 的 `poolTranscriber`），
+   * 那一档一个可用的模型都没有时用更新细纲那一个。
+   */
+  transcribe?: TranscribeCall;
   /** 走到第几步了（任务条上那一行）。 */
   onStep?(step: 'summary' | 'state' | 'threads' | 'time'): void;
 }
 
 export interface FinalizeOutcome extends StateAndThreadsOutcome {
-  /** 实际调了几次模型（四步合计，3–6）。 */
+  /** 实际调了几次模型（四步合计，写 3–6 次，加上转写的）。 */
   calls: number;
   summary: SummaryOutcome;
 }
@@ -100,9 +110,10 @@ export async function finalizeChapter(
     }
     summaryRunner = singleModel(llm);
   }
+  const transcribe = opts.transcribe ?? poolTranscriber(opts.signal ?? new AbortController().signal, summaryRunner);
   opts.onStep?.('summary');
   const summary = await summaryRunner.run(`第 ${chapter.order} 章 · 细纲`, (llm) =>
-    summarizeChapter(project, chapter, llm, opts.signal, summaryRunner!.primaryBudget)
+    summarizeChapter(project, chapter, llm, opts.signal, summaryRunner!.primaryBudget, transcribe)
   );
   if (!summary) {
     return undefined;
@@ -112,8 +123,9 @@ export async function finalizeChapter(
     threads: opts.threads ?? summaryRunner,
     signal: opts.signal,
     onStep: opts.onStep,
+    transcribe,
   });
-  return { ...rest, calls: 1 + rest.calls, summary };
+  return { ...rest, calls: summary.calls + rest.calls, summary };
 }
 
 /**
@@ -210,7 +222,7 @@ export async function askFinalizeChapterTask(project: NovelProject, chapter: Cha
     message: `${verb}第 ${chapter.order} 章《${chapter.title}》：照正文更新细纲、更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间。${describeCalls(calls)}。`,
     actions: [verb],
     detail: `${why}。\n旧版细纲先复制一份进 .novelforge/.trash/。`,
-    tasks: ['plotSummary', 'characterCard'],
+    tasks: ['plotSummary', 'characterCard', 'transcribe'],
     // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
     preset: { model: readConfig().model || undefined },

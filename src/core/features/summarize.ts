@@ -27,7 +27,9 @@ import { StateAndThreadsOutcome, updateStateAndThreads } from './finalizeSteps';
 import { checkpointBefore } from './checkpoint';
 import { describeUsage, estimateTokens, recordUsage, takeHead } from '../context/tokenizer';
 import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
-import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_SYSTEM } from './summarizePrompt';
+import { GLOBAL_SYSTEM, REFINE_SYSTEM, STAGE_SYSTEM, SUMMARY_JSON_CONTRACT, SUMMARY_SYSTEM } from './summarizePrompt';
+import { TranscribeCall, TranscribeSpec, transcribeJson } from './transcribe';
+import { poolTranscriber } from './poolIO';
 import { Workspace } from '../workspace';
 
 const log = scoped('同步');
@@ -36,7 +38,7 @@ const globalLog = scoped('全文大纲');
 /**
  * 定稿时模型交回来的结构化形态：七个小节 + 机器可读的出场人物清单 + 「设定」一节（设定名录）。
  *
- * 模型被要求直接输出这个形状的 JSON。小节最终要渲染成人类可读的 Markdown（作者会翻、
+ * 2026-10-25 起模型按八个小标题写，转写模型照抄成这个形状的 JSON（从前要模型直接出）。小节最终要渲染成人类可读的 Markdown（作者会翻、
  * 会手改），`cast` 则是给程序用的——出场统计、角色卡的关联都吃它。`lore` 是模型给的原样，
  * 写盘之前还要过一遍校验（features/loreRecord.ts 的 `checkLore`）。
  */
@@ -58,11 +60,74 @@ export interface SummaryOutcome extends SummaryData {
   facts: ContinuityFact[];
   /** 正文里找不到依据、丢掉的事实（D18，第 2 条：说出来）。 */
   dropped: string[];
+  /** 这一步实际调了几次模型：写 1 次，转写 0–2 次（2026-10-25 起改成转写）。 */
+  calls: number;
 }
 
 /**
- * 照正文反向更新一章的细纲（定稿的第一步，1 次调用）。返回写好的那一份；没有模型、正文是空的时
- * 返回 undefined（已经说过原因）。
+ * 更新细纲没成（模型的回答读不出来）。带着这一步已经调了几次（写 1 次，加上转写的），批量那边照它记账——
+ * 请求发出去了钱就花了。
+ */
+export class SummarizeError extends Error {
+  constructor(
+    message: string,
+    readonly calls: number
+  ) {
+    super(message);
+    this.name = 'SummarizeError';
+  }
+}
+
+/** 更新细纲没成时这一步调了几次：读不出来的带着实数，别的错（网络、超时）是写的那 1 次。 */
+export function summarizeCallsOf(err: unknown): number {
+  return err instanceof SummarizeError ? err.calls : 1;
+}
+
+/** 转写那一步的规格（2026-10-25 起改成转写）：形状就是 {@link parseSummaryJson} 认的那一份，文字全部要出自原文。 */
+const SUMMARY_TRANSCRIBE: TranscribeSpec<SummaryData> = {
+  label: '细纲',
+  contract: SUMMARY_JSON_CONTRACT,
+  decode: (json) => {
+    const data = parseSummaryJson(json);
+    return data ? { ok: true, value: data } : { ok: false, message: '梗概与关键事件都是空的' };
+  },
+  // 连「梗概」「关键事件」都没有的（「好的，这一章主要写了……」）不花转写那一次，按读不出来走。
+  looksLike: (source) => /梗概|关键事件/.test(source),
+};
+
+/**
+ * 模型的回答 → 八节（2026-10-25 起改成转写）：
+ *
+ * 1. 模型自己给了 JSON（没照格式写、老会话、测试里的假模型）：照原来的解码，不转。
+ * 2. 按小标题写的：转写模型照抄成 JSON（`SUMMARY_JSON_CONTRACT`），查过每段文字都出自原文。
+ * 3. 转写没成（调用失败、两次都改了字）：照原来的第二层按小节读原文（{@link parseSummaryResponse}）——原文就是按小节写的，
+ *    七节读得出来，出场人物与设定从那两节的文字里认。说明里写清。
+ *
+ * 三样都读不出来交回空的七节，由调用方报失败、细纲不动（同从前）。
+ */
+async function readSummary(
+  raw: string,
+  transcribe: TranscribeCall,
+  no: number
+): Promise<{ data: SummaryData; calls: number; notes: string[] }> {
+  const direct = parseSummaryJson(stripCodeFence(raw));
+  if (direct) {
+    return { data: direct, calls: 0, notes: [] };
+  }
+  const r = await transcribeJson(raw, { ...SUMMARY_TRANSCRIBE, label: `第 ${no} 章细纲` }, transcribe);
+  if (r.ok) {
+    return { data: r.value, calls: r.calls, notes: r.notes };
+  }
+  const notes = [...r.notes];
+  if (r.calls > 0) {
+    notes.push(`第 ${no} 章细纲没转写成（${r.message}），按小节读了原文：出场人物与设定从那两节的文字里认`);
+  }
+  return { data: parseSummaryResponse(raw), calls: r.calls, notes };
+}
+
+/**
+ * 照正文反向更新一章的细纲（定稿的第一步：写 1 次，2026-10-25 起再由转写模型照抄成 JSON 1–2 次）。返回写好的那一份；
+ * 没有模型、正文是空的时返回 undefined（已经说过原因）。
  *
  * 读的是 `chapters/`：细纲定稿后描述的是写出来的那一章。**手上有细纲就拿它与正文对照着改**
  * （`REFINE_SYSTEM`：以正文为准，一致的保留原措辞，写偏的改、没写到的删）——这是修改，不是重写；
@@ -83,7 +148,12 @@ export async function summarizeChapter(
    * 分档后干活的模型未必是对话页选的那个，拿它的窗口切正文会超窗。
    * 单章入口（命令面板）不传，退回全局配置。
    */
-  budget?: { contextWindow: number; maxOutputTokens: number }
+  budget?: { contextWindow: number; maxOutputTokens: number },
+  /**
+   * 转写那一次怎么调（2026-10-25 起改成转写）。定稿、同步从外面传一个进来，几步共用同一个转写池；缺省现建一个，
+   * 转写那一档一个可用的模型都没有时用写的这一个。
+   */
+  transcribe?: TranscribeCall
 ): Promise<SummaryOutcome | undefined> {
   const llm = provider ?? (await resolveProvider());
   if (!llm) {
@@ -152,11 +222,18 @@ export async function summarizeChapter(
     { onUsage: (u) => mergeUsage(usage, u) }
   );
 
-  const { sections, cast, lore: rawLore } = parseSummaryResponse(raw);
+  const transcriber =
+    transcribe ?? poolTranscriber(signal ?? new AbortController().signal, { run: (_what, fn) => fn(llm), primaryBudget: window });
+  const read = await readSummary(raw, transcriber, chapter.order);
+  const calls = 1 + read.calls;
+  if (read.notes.length > 0) {
+    log.warn(`第 ${chapter.order} 章细纲的转写不顺`, read.notes.join('\n'));
+  }
+  const { sections, cast, lore: rawLore } = read.data;
   if (!sections.梗概.trim() && !sections.关键事件.trim()) {
     log.error(
       `第 ${chapter.order} 章同步解析失败：模型返回既不是 JSON 也不符合小节格式`,
-      `返回 ${raw.length} 字，开头：${raw.slice(0, 300)}`
+      `返回 ${raw.length} 字，开头：${raw.slice(0, 300)}${read.calls > 0 ? `｜转写 ${read.calls} 次也没成` : ''}`
     );
     // 也在这里记一条，而不是只靠 syncSummaries 的 onSettled：主按钮「定稿」
     // 走的是单章路径，那条异常会一路抛到命令外层，根本到不了批量编排里。
@@ -169,10 +246,10 @@ export async function summarizeChapter(
       op: 'summarize',
       message: '同步失败：模型返回无法解析',
       detail:
-        `模型返回 ${raw.length} 字，既不是 JSON 也不符合小节格式。细纲没有改动；` +
+        `模型返回 ${raw.length} 字，没有按八个小标题写，也不是 JSON${read.calls > 0 ? '（转写也没转成）' : ''}。细纲没有改动；` +
         '这一章的连续性事实与出场人物不会进入上下文。换个模型或稍后重试。',
     });
-    throw new Error(`第 ${chapter.order} 章同步失败，模型返回内容无法解析。`);
+    throw new SummarizeError(`第 ${chapter.order} 章同步失败，模型返回内容无法解析。`, calls);
   }
   // 连续性事实挂证据：在整章正文里找（截给模型的那一份可能只有前半章）。人名给出场人物的
   // 名字与别名——事实里提到谁，就先在提到他的句子里找。
@@ -207,9 +284,10 @@ export async function summarizeChapter(
       `出场 ${cast.length} 人${cast.length > 0 ? `（${cast.map((c) => c.name).join('、')}）` : ''}` +
       `｜连续性事实 ${facts.length} 条｜设定 ${lore.length} 条` +
       `${trashed ? `｜旧版已放进回收站：${trashed}` : '｜原来没有细纲，新建了一份'}` +
+      `${read.calls > 0 ? `｜转写 ${read.calls} 次` : ''}` +
       `${usageNote ? `｜${usageNote}` : ''}`
   );
-  return { relPath, trashed, sections, cast, lore, facts, dropped };
+  return { relPath, trashed, sections, cast, lore, facts, dropped, calls };
 }
 
 /**
@@ -248,7 +326,7 @@ async function knownNamesHint(project: NovelProject): Promise<string> {
       return aliases.length > 0 ? `${c.name}（又称 ${aliases.join('、')}）` : c.name;
     })
     .join('、');
-  return `已有角色卡：${list}。出场人物中若出现这些人，name 请与此处完全一致。\n\n`;
+  return `已有角色卡：${list}。出场人物中若出现这些人，姓名请与此处完全一致。\n\n`;
 }
 
 
@@ -290,7 +368,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
       `每章 ${each.low}–${each.high} 次（${each.why}）。\n` +
       (lanes > 1 ? `照正文更新细纲并发 ${lanes} 路；` : '照正文更新细纲逐章串行（并发数为 1）；') +
       '角色状态、叙事线与故事时间按章号逐章串行（要一章一章往后推）。\n每章的旧版细纲先复制一份进 .novelforge/.trash/。',
-    tasks: ['plotSummary', 'characterCard'],
+    tasks: ['plotSummary', 'characterCard', 'transcribe'],
     // 定稿认叙事线带几条线、几条伏笔随详细度（`recordThreads`）。
     contextDetail: true,
   });
@@ -316,8 +394,10 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
         // 先存一个存档点（features/checkpoint.ts）：逐章改细纲、角色卡与叙事线，整本退得回去。
         await checkpointBefore(project, `同步章节细纲之前（${stale.length} 章）`);
         const startedAt = Date.now();
-        const { ok: okCount, failed, updated } = await summarizeChapters(project, stale, { pool, lanes, signal, report });
-        used += okCount + failed.length;
+        // 转写（2026-10-25 起）：几章几步共用一个转写池，第一次用到时才建；那一档一个可用的模型都没有时用定稿那一档。
+        const transcribe = poolTranscriber(signal, pool);
+        const { ok: okCount, failed, updated, calls: summaryCalls } = await summarizeChapters(project, stale, { pool, lanes, signal, report, transcribe });
+        used += summaryCalls;
         if (signal.aborted) {
           log.warn(`同步被取消，已更新 ${okCount} 章细纲，角色状态与叙事线一章都没走`);
           await markHalfDone(project, updated);
@@ -335,6 +415,7 @@ export async function syncSummaries(project: NovelProject): Promise<number> {
               state: statePool,
               threads: pool,
               signal,
+              transcribe,
             });
             used += rest.calls;
             results.push(rest);
@@ -437,13 +518,19 @@ export async function summarizeChapters(
     lanes: number;
     signal: AbortSignal;
     report: (p: { message?: string; current?: number; total?: number }) => void;
+    /** 转写那一次怎么调（2026-10-25 起）。缺省现建一个，转写那一档没有可用的模型时用 `pool`。 */
+    transcribe?: TranscribeCall;
   }
 ): Promise<{
   ok: number;
   failed: { no: number; reason: string }[];
   updated: { chapter: Chapter; summary: SummaryOutcome }[];
+  /** 实际调了几次模型（写的加转写的；没成的也算发出去的那几次）。 */
+  calls: number;
 }> {
   const { pool, lanes, signal, report } = opts;
+  const transcribe = opts.transcribe ?? poolTranscriber(signal, pool);
+  let calls = 0;
   const startedAt = Date.now();
   const failed: { no: number; reason: string }[] = [];
   const updated: { chapter: Chapter; summary: SummaryOutcome }[] = [];
@@ -465,7 +552,7 @@ export async function summarizeChapters(
     lanes,
     (chapter) =>
       pool.run(`第 ${chapter.order} 章`, (llm) =>
-        summarizeChapter(project, chapter, llm, signal, pool.primaryBudget)
+        summarizeChapter(project, chapter, llm, signal, pool.primaryBudget, transcribe)
       ),
     {
       signal,
@@ -484,11 +571,14 @@ export async function summarizeChapters(
           okCount++;
           // 空章、没有可用的模型时第一步交回 undefined（已经说过原因），没有可接着走的。
           if (result.value) {
+            calls += result.value.calls;
             updated.push({ chapter, summary: result.value });
           }
         } else {
           const err = result.reason;
           if (!(err instanceof CancelledError || err?.name === 'CancelledError')) {
+            // 请求发出去了钱就花了：读不出来的带着写与转写的实数，别的错算写的那 1 次。
+            calls += summarizeCallsOf(err);
             const reason = describeError(err);
             failed.push({ no: chapter.order, reason });
             log.error(`第 ${chapter.order} 章《${chapter.title}》失败：${reason}`, err);
@@ -523,7 +613,7 @@ export async function summarizeChapters(
   // 完成顺序是乱的，汇报前按章号排回来——「第 7、3、12 章失败」没法读。
   failed.sort((a, b) => a.no - b.no);
   updated.sort((a, b) => a.chapter.order - b.chapter.order);
-  return { ok: okCount, failed, updated };
+  return { ok: okCount, failed, updated, calls };
 }
 
 /**
@@ -908,9 +998,10 @@ export async function rebuildGlobalSummary(project: NovelProject): Promise<void>
  *
  * 两层，解析不出来就什么都不收：
  *
- * 1. **JSON**（提示词要求的形状）。字段缺失、类型不对、数组/字符串混用
+ * 1. **JSON**（模型自己给的、老会话）。字段缺失、类型不对、数组/字符串混用
  *    都逐字段兜住，不整体作废；多出来的尾逗号自己去掉再解析一次。
- * 2. **Markdown 小节**。模型忽略 JSON 要求、照着细纲的样子写回来时走这条。
+ * 2. **Markdown 小节**。2026-10-25 起提示词就要模型按小标题写、由转写模型照抄成 JSON（`readSummary`）；
+ *    转写没成时按这一层读原文。
  *
  * 从前还有第三层「全文塞进梗概」。那时写坏的是一份单独的摘要；现在定稿写回的就是这一章的
  * 细纲，全文塞进梗概等于拿一段没解析开的 JSON 换掉作者的计划，还记上 `sourceHash` 让这一章

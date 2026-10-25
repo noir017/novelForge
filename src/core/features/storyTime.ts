@@ -4,7 +4,7 @@
  *
  * ```
  * 历法与起点 + 前面几章的时间（带结尾时段）+ 上一章的结尾约 1000 字 + 这一章（几章）的正文（太长截中间）+ 细纲记的时间地点
- *   ──▶ 1 次 ──▶ times[]：开头晚几天、章内几跳、结尾时段、正文写明的日子与季节
+ *   ──▶ 写 1 次（一章一节自然语言）──▶ 转写 1–2 次（2026-10-25 起）──▶ times[]：开头晚几天、章内几跳、结尾时段、正文写明的日子与季节
  *   ──▶ verifyTime（证据逐字）──▶ 写进 threads/时间线.md（同步、重推 refresh：机器写的行照新推的换；补推 fill：只填空；作者的行都不动）
  * ```
  *
@@ -12,7 +12,9 @@
  *   现在认事件没成不挡它，它没成也不挡叙事线：失败挂黄 ❗ 在章节上（op {@link TIME_OP}，第 16 条），细纲、叙事线照样算数。
  * - 走「定稿」档，同叙事线那一步。不带思考深度（第 26 条）。
  */
-import { CancelledError } from '../llm/provider';
+import { CancelledError, StreamOptions } from '../llm/provider';
+import { collectText } from '../llm/collect';
+import { readConfig } from '../config';
 import { NovelProject } from '../model/project';
 import { Chapter } from '../model/types';
 import {
@@ -32,8 +34,11 @@ import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, scoped } from '../runtime/logger';
 import { Workspace } from '../workspace';
 import type { ModelRunner } from './finalizeSteps';
-import { StepOpts, askJsonObject } from './threads';
-import { TIME_SYSTEM } from './timePrompt';
+import type { StepOpts } from './threads';
+import { extractJsonObject, stripCodeFence, stripTrailingCommas } from './parse';
+import { TIME_JSON_CONTRACT, TIME_SYSTEM } from './timePrompt';
+import { TranscribeCall, TranscribeSpec, transcribeJson } from './transcribe';
+import { poolTranscriber } from './poolIO';
 
 const log = scoped('故事时间');
 
@@ -107,7 +112,7 @@ export async function buildTimeInput(
     }
     parts.push(`【第${c.order}章 ${c.title}】\n${timePlace ? `（细纲记的时间地点，只当提示，不是正文：${timePlace}）\n` : ''}\n${body}`);
   }
-  parts.push(`请给第 ${chapters.map((c) => c.order).join('、')} 章各判一次时间，按要求输出 JSON。`);
+  parts.push(`请给第 ${chapters.map((c) => c.order).join('、')} 章各判一次时间，按要求的格式写。`);
   return parts.join('\n\n');
 }
 
@@ -140,20 +145,118 @@ export async function writeTimeEntry(
 }
 
 /**
- * 判这几章（按章号连续，一次调用）：读此刻盘上的时间线当「前面几章的时间」，调一次模型，逐章校验、按 `mode` 写盘。调用没成、
- * 解析不出来抛错（取消照样抛）；模型漏了的章记 `missing`。
+ * 认时间没成（调用没成之外的：模型的回答读不出来、转写没成）。带着这一次已经调了几次（写 1 次，加上转写的），调用方照它记账。
+ */
+export class TimeJudgeError extends Error {
+  constructor(
+    message: string,
+    readonly calls: number
+  ) {
+    super(message);
+    this.name = 'TimeJudgeError';
+  }
+}
+
+/** 认时间没成时调了几次：读不出来的带着实数，别的错（网络、超时）是写的那 1 次。 */
+export function timeCallsOf(err: unknown): number {
+  return err instanceof TimeJudgeError ? err.calls : 1;
+}
+
+/** 认时间那一次怎么调：`StepOpts`，再加转写那一次（2026-10-25 起）。缺省走「转写」那一档，那一档没有可用的模型时用 `run` 那一个。 */
+export type TimeStepOpts = StepOpts & { transcribe?: TranscribeCall };
+
+/**
+ * 认时间转写那一步的规格（2026-10-25 起改成转写）：形状是 `{"times":[…]}`（老的单章 `{"time":{…}}` 也认）。章号、天数、
+ * 时段词、回忆多久以前按对应关系填，不比原文；依据、理由、写明的日子与季节都要出自原文（`verifyTime` 再回正文逐字找一遍）。
+ */
+function timeSpec(chapters: readonly Chapter[]): TranscribeSpec<Record<string, unknown>> {
+  const first = chapters[0].order;
+  const last = chapters[chapters.length - 1].order;
+  return {
+    label: `第 ${first === last ? first : `${first}–${last}`} 章故事时间`,
+    contract: TIME_JSON_CONTRACT,
+    decode: (json) => {
+      const value = parseTimeAnswer(json);
+      return value && (Array.isArray(value.times) || (value.time && typeof value.time === 'object'))
+        ? { ok: true, value }
+        : { ok: false, message: '没有 times 这一项' };
+    },
+    mapped: ['chapter', 'days', 'offset', 'part', 'endPart', 'flashback'],
+    // 连一个「第N章」、一项都没有的（「今天不想判。」）不花转写那一次，按读不出来走。
+    looksLike: (source) => source.includes('开头晚几天') || chapters.some((c) => source.includes(`第${c.order}章`)),
+  };
+}
+
+/** 原来的解码：剥围栏、抠对象、去尾逗号，是对象就收。 */
+function parseTimeAnswer(raw: string): Record<string, unknown> | undefined {
+  const json = extractJsonObject(stripCodeFence(raw));
+  try {
+    const value: unknown = json ? JSON.parse(stripTrailingCommas(json)) : undefined;
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 调一次模型认时间，取回 `{"times":[…]}`（2026-10-25 起改成转写）：模型自己给了 JSON（老会话、测试里的假模型）照原来的解码、
+ * 不转；按格式写的交给转写模型照抄。读不出来、转写没成抛 {@link TimeJudgeError}（带着调了几次）；调用本身没成照样往外抛。
+ */
+async function askTimes(
+  opts: TimeStepOpts,
+  chapters: readonly Chapter[],
+  label: string,
+  user: string
+): Promise<{ answer: Record<string, unknown>; calls: number }> {
+  const options: StreamOptions = {
+    maxOutputTokens: opts.budget.maxOutputTokens,
+    temperature: 0.2,
+    timeoutMs: readConfig().requestTimeoutMs,
+    signal: opts.signal,
+  };
+  const raw = await opts.run(label, (llm) =>
+    collectText(
+      llm.stream(
+        [
+          { role: 'system', content: TIME_SYSTEM },
+          { role: 'user', content: user },
+        ],
+        options
+      )
+    )
+  );
+  const direct = parseTimeAnswer(raw);
+  if (direct) {
+    return { answer: direct, calls: 1 };
+  }
+  const transcribe =
+    opts.transcribe ?? poolTranscriber(opts.signal ?? new AbortController().signal, { run: opts.run, primaryBudget: opts.budget });
+  const r = await transcribeJson(raw, timeSpec(chapters), transcribe);
+  if (r.notes.length > 0) {
+    log.warn(`${label}：转写不顺`, r.notes.join('\n'));
+  }
+  if (!r.ok) {
+    throw new TimeJudgeError(`模型返回的故事时间解析不出来（${r.calls > 0 ? `转写没成：${r.message}` : r.message}）`, 1 + r.calls);
+  }
+  return { answer: r.value, calls: 1 + r.calls };
+}
+
+/**
+ * 判这几章（按章号连续，写一次、转写一到两次）：读此刻盘上的时间线当「前面几章的时间」，调模型，逐章校验、按 `mode` 写盘。
+ * 调用没成、解析不出来抛错（取消照样抛；读不出来的是 {@link TimeJudgeError}，带着调了几次）；模型漏了的章记 `missing`。
+ * 交回各章的结果与实际调了几次。
  */
 export async function judgeTimes(
   project: NovelProject,
   chapters: readonly Chapter[],
-  opts: StepOpts & { mode: TimelineWriteMode; label: string }
-): Promise<TimeResult[]> {
+  opts: TimeStepOpts & { mode: TimelineWriteMode; label: string }
+): Promise<{ results: TimeResult[]; calls: number }> {
   const timeline = (await project.readThreads()).timeline ?? emptyTimeline(project.relPath(project.timelinePath));
   const texts = await Promise.all(chapters.map((c) => project.readChapterText(c)));
   const hints = await Promise.all(chapters.map(async (c) => (await project.plotOfChapter(c))?.sections.时间地点?.replace(/\s+/gu, ' ').trim() || undefined));
   const budget = Math.max(2000, opts.budget.contextWindow - opts.budget.maxOutputTokens - estimateTokens(TIME_SYSTEM) - 500);
   const user = await buildTimeInput(project, chapters, texts, timeline, budget);
-  const answer = await askJsonObject(opts, opts.label, TIME_SYSTEM, user, 0.2, '故事时间');
+  const { answer, calls } = await askTimes(opts, chapters, opts.label, user);
   // 老的单章形状（`{"time":{…}}`）、模型把一项直接摊在最外层的，也认。
   const list = Array.isArray(answer.times) ? answer.times : answer.time ? [{ chapter: chapters[0].order, ...(answer.time as object) }] : [];
   const wanted = new Set(chapters.map((c) => c.order));
@@ -193,12 +296,12 @@ export async function judgeTimes(
     const authored = action === 'kept' && (timeline.bad.includes(c.order) || (before !== undefined && !isMachineEntry(before)));
     out.push({ chapter: c.order, entry: verified.entry, action, ...(authored ? { authored: true as const } : {}) });
   }
-  return out;
+  return { results: out, calls };
 }
 
 /** {@link recordChapterTime} 的结果。 */
 export interface TimeStep {
-  /** 实际调了几次模型（没成也算那 1 次：请求发出去了）。 */
+  /** 实际调了几次模型（写 1 次加上转写的；没成也算发出去的那几次）。 */
   calls: number;
   time?: TimeResult;
   /** 没推成（时间线没动）。 */
@@ -206,25 +309,26 @@ export interface TimeStep {
 }
 
 /**
- * 同步一章时的「故事时间」那一步（单章定稿、立即同步、写完即定稿都经 finalizeSteps.ts）：1 次，机器写的行照新推的换（⚑7），作者的
- * 行不动。**不抛**（取消照样抛出去）：没成挂黄 ❗ 在章节上，成了清掉。
+ * 同步一章时的「故事时间」那一步（单章定稿、立即同步、写完即定稿都经 finalizeSteps.ts）：写 1 次、转写 1–2 次，机器写的行照新推的换
+ * （⚑7），作者的行不动。**不抛**（取消照样抛出去）：没成挂黄 ❗ 在章节上，成了清掉。
  */
 export async function recordChapterTime(
   project: NovelProject,
   chapter: Chapter,
   runner: ModelRunner,
-  opts: { signal?: AbortSignal } = {}
+  opts: { signal?: AbortSignal; transcribe?: TranscribeCall } = {}
 ): Promise<TimeStep> {
   try {
-    const [time] = await judgeTimes(project, [chapter], {
+    const { results, calls } = await judgeTimes(project, [chapter], {
       run: (what, fn) => runner.run(what, fn),
       budget: runner.primaryBudget,
       signal: opts.signal,
+      transcribe: opts.transcribe,
       mode: 'refresh',
       label: `第 ${chapter.order} 章 · 故事时间`,
     });
     await clearFailures(project, 'chapter', chapter.relPath, TIME_OP);
-    return { calls: 1, time };
+    return { calls, time: results[0] };
   } catch (err) {
     if (err instanceof CancelledError || opts.signal?.aborted) {
       throw err;
@@ -240,7 +344,7 @@ export async function recordChapterTime(
       message: `细纲已照正文更新，但故事时间没推成：${timeError}`,
       detail: '时间线里这一章没动。重新同步这一章会再推一次；也可以在叙事线页签「时间线」组里右键这一章「重推这一章」。',
     });
-    return { calls: 1, timeError };
+    return { calls: timeCallsOf(err), timeError };
   }
 }
 

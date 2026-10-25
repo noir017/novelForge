@@ -1108,16 +1108,16 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual({ ...pipeline.PLOT_CALLS, why: '' }, { low: 2, high: 2, max: 3, why: '' });
   });
 
-  // D17：定稿 = 摘要 + 出场角色的当前状态；叙事线重做之后叙事线 1–3 次（认事件每次都跑，设计稿 ⚑6），
-  // 所以最少 2 次。
-  test('定稿第 N 章报「预计 3–6 次调用」，并说清各做什么', () => {
+  // D17：定稿 = 摘要 + 出场角色的当前状态；叙事线重做之后叙事线 1–3 次（认事件每次都跑，设计稿 ⚑6），故事时间 1 次，
+  // 所以最少写 3 次。2026-10-25 起每次写完都转写一次、不合格各重转一次。
+  test('定稿第 N 章报「预计 6–12 次调用，最多 18 次」，并说清各做什么、写几次转写几次', () => {
     const step = pipeline.deriveNextStep('finalize', { no: 3, words: 900, ratio: 1, upstreamStale: false });
     assert.equal(step.label, '同步第 3 章');
     assert.equal(step.projectAction, 'finalizeChapter');
     assert.deepEqual(step.calls, pipeline.FINALIZE_CALLS);
     assert.equal(
       pipeline.describeCalls(step.calls),
-      '预计 3–6 次调用（照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；叙事线认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次；故事时间 1 次）'
+      '预计 6–12 次调用，最多 18 次（照正文更新细纲 1 次；本章出场的人有角色卡时更新角色状态 1 次；叙事线认事件 1 次，有线动过时更新当前进度 1 次，认出新线或新伏笔时归并 1 次；故事时间 1 次——写 3–6 次，每次写完由转写模型照抄成 JSON 1 次（转写 3–6 次），转写不合格各重转 1 次）'
     );
   });
 
@@ -1177,9 +1177,9 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.calls, { low: 3, high: 12, max: 36 });
   });
 
-  test('写完即定稿：每章再加定稿的 3–6 次', () => {
+  test('写完即定稿：每章再加定稿的 6–12 次（最多 18 次）', () => {
     const plan = pipeline.planWriteBatch({ ...base, mode: 'finalize', from: 1, to: 3 });
-    assert.deepEqual(plan.calls, { low: 12, high: 30, max: 54 });
+    assert.deepEqual(plan.calls, { low: 21, high: 45, max: 87 });
     assert.equal(plan.mode, 'finalize');
     assert.equal(plan.review, false);
   });
@@ -1190,7 +1190,7 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.equal(plan.review, true);
     assert.deepEqual(plan.calls, { low: 9, high: 18, max: 57 });
     const both = pipeline.planWriteBatch({ ...base, mode: 'finalize', review: true, from: 1, to: 3 });
-    assert.deepEqual(both.calls, { low: 18, high: 36, max: 75 });
+    assert.deepEqual(both.calls, { low: 24, high: 48, max: 96 });
   });
 
   // 第 19 条批量那一面：已有产物的一律跳过，不问、不覆盖。

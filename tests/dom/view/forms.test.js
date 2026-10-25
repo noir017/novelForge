@@ -392,8 +392,9 @@ describe('批量写章弹窗', { skip: JSDOM_SKIP }, () => {
     type(ui, 'from', 4);
     type(ui, 'to', 6);
     choose('finalize');
-    assert.ok(note(ui).includes('预计 14–32 次调用，最多 65 次'), note(ui));
+    assert.ok(note(ui).includes('预计 23–47 次调用，最多 98 次'), note(ui));
     assert.ok(note(ui).includes('每写完一章就同步'), note(ui));
+    assert.ok(note(ui).includes('由转写模型照抄成 JSON'), note(ui));
   });
 
   test('写完即定稿要点两下：第一下只换字，不发', () => {

@@ -3,7 +3,7 @@
  * docs/design/plans/2026-10-24-story-timeline-rework.md「四」）：同步时单独一次推的是那一章；这里一批一批补上、重来。
  *
  * ```
- * 第 a–a+4 章（一批，最多 5 章，按字数切）→ 1 次（features/storyTime.ts 的 judgeTimes）→ 写进 threads/时间线.md → 下一批 → ……
+ * 第 a–a+4 章（一批，最多 5 章，按字数切）→ 写 1 次、转写 1–2 次（features/storyTime.ts 的 judgeTimes）→ 写进 threads/时间线.md → 下一批 → ……
  * ```
  *
  * - **补推**（`fill`）：同步过、正文没再改过、时间线里还没有这一行（或还是机器写的 `+?`〔推不出〕）的章。重做之后**不再要求叙事线
@@ -12,7 +12,7 @@
  *   作者写的、认不出的一行不动（第 28 条）。v0.2.6 推坏的那些用它重来。
  * - **串行**：后一批要看前一批推出来的「前面几章的时间」。
  * - **一批没成就停**（同补记 ⚑10）：已写的留着，失败挂在时间线文件上（第 16 条），再点一次从那一章接着；都成了才清。
- * - 走「定稿」档（`plotSummary`）的池，同同步。不带思考深度（第 26 条）。开跑前存存档点。不给外部 agent（⚑8：MCP 的同步本来就推，这两样是
+ * - 走「定稿」档（`plotSummary`）的池，同同步；转写（2026-10-25 起）走「转写」那一档。不带思考深度（第 26 条）。开跑前存存档点。不给外部 agent（⚑8：MCP 的同步本来就推，这两样是
  *   工程页上的维护动作）。
  *
  * 入口：工程页「叙事线」页签「时间线」组——标题旁「补推时间」「重推」、右键一章「重推这一章」「从这一章起重推」。
@@ -31,7 +31,9 @@ import { describeError, elapsed, scoped } from '../runtime/logger';
 import { runTask } from '../runtime/progress';
 import { askCall } from './askCall';
 import { checkpointBefore } from './checkpoint';
-import { TIME_CHAPTER_CHARS, judgeTimes } from './storyTime';
+import { TIME_CHAPTER_CHARS, judgeTimes, timeCallsOf } from './storyTime';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall } from './transcribe';
 
 const log = scoped('故事时间');
 
@@ -60,9 +62,9 @@ export interface TimelinePlan {
   calls: CallEstimate;
 }
 
-/** 推 `batches` 批：一批 1 次。 */
+/** 推 `batches` 批：一批写 1 次、转写模型照抄成 JSON 1 次（2026-10-25 起），转写不合格重转 1 次。 */
 export function timelineBatchCalls(batches: number): CallEstimate {
-  return { low: batches, high: batches, max: batches };
+  return { low: 2 * batches, high: 2 * batches, max: 3 * batches, why: '每批写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次' };
 }
 
 /** 按章号切批：最多 {@link TIME_BATCH_CHAPTERS} 章、合计不超过 {@link TIME_BATCH_CHARS} 字（一章本身太长的单独一批）；不连号的地方断开。 */
@@ -173,9 +175,12 @@ export async function runTimeline(
     pool: Pick<ModelPool, 'run' | 'primaryBudget'>;
     signal: AbortSignal;
     report: (p: { message?: string; current?: number; total?: number }) => void;
+    /** 转写那一次怎么调（2026-10-25 起）。缺省走「转写」那一档，那一档没有可用的模型时用 `pool`。 */
+    transcribe?: TranscribeCall;
   }
 ): Promise<TimelineRunOutcome> {
   const { signal, report, pool } = opts;
+  const transcribe = opts.transcribe ?? poolTranscriber(signal, pool);
   const out: TimelineRunOutcome = { calls: 0, written: [], unknown: [], dated: [], missed: [], left: [] };
   const rel = project.relPath(project.timelinePath);
   const verb = plan.mode === 'refresh' ? '重推' : '补推';
@@ -191,15 +196,16 @@ export async function runTimeline(
     const where = describeChapterRuns(batch.map((c) => c.order));
     report({ message: where, current: i, total });
     try {
-      out.calls += 1;
       // 「前面几章的时间」按此刻盘上的时间线算：前一批刚写进去的也算上（judgeTimes 里读）。
-      const results = await judgeTimes(project, batch, {
+      const { results, calls } = await judgeTimes(project, batch, {
         run: (what, fn) => pool.run(what, fn),
         budget: pool.primaryBudget,
         signal,
+        transcribe,
         mode: plan.mode,
         label: `${verb}时间 · ${where}`,
       });
+      out.calls += calls;
       for (const r of results) {
         if (r.missing || !r.entry) {
           out.missed.push(r.chapter);
@@ -214,6 +220,8 @@ export async function runTimeline(
         }
       }
     } catch (err) {
+      // 请求发出去了钱就花了：读不出来的带着写与转写的实数，别的错（取消、网络）算写的那 1 次。
+      out.calls += timeCallsOf(err);
       if (err instanceof CancelledError || signal.aborted) {
         out.cancelled = true;
         out.left = rest();
@@ -320,7 +328,7 @@ async function timelineAction(project: NovelProject, mode: TimelineWriteMode, ra
     ]
       .filter(Boolean)
       .join('\n'),
-    tasks: ['plotSummary'],
+    tasks: ['plotSummary', 'transcribe'],
     // 只送正文、前面几章的时间与上一章的结尾，不看上下文详细度。
     contextDetail: false,
   });

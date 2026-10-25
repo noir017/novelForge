@@ -5,7 +5,7 @@
 import { readConfig } from '../config';
 import { CollectResult, collect } from '../llm/collect';
 import { ModelPool, createModelPool } from '../llm/pool';
-import type { ChatMessage } from '../llm/provider';
+import type { ChatMessage, LlmProvider } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { BuildRequest, buildContext } from '../context/builder';
 import { CallOutcome, ChainIO } from '../generation/structured';
@@ -73,8 +73,10 @@ export function lazyTranscriber(): () => Promise<ModelPool | undefined> {
  * 工程页任务（定稿、叙事线、角色卡、设定……）的转写调用（features/transcribe.ts 的 `TranscribeCall`）：走「转写」那一档，
  * 第一次用到时才建池。那一档一个可用的模型都没有时用 `fallback`（干活那个池）并说一声；连它也没有就报错——
  * `transcribeJson` 把它当成转写调用失败，写好的原文照这一步原来解析失败的走法处理。
+ * `fallback` 只要能 `run`、有窗口就行（{@link TranscribeFallback}）：单章同步缺省用对话页那一个模型（features/finalize.ts 的
+ * `singleModel`），不是池。
  */
-export function poolTranscriber(signal: AbortSignal, fallback?: ModelPool): TranscribeCall {
+export function poolTranscriber(signal: AbortSignal, fallback?: TranscribeFallback): TranscribeCall {
   const own = lazyTranscriber();
   const timeoutMs = readConfig().requestTimeoutMs;
   return async (messages, label) => {
@@ -90,9 +92,15 @@ export function poolTranscriber(signal: AbortSignal, fallback?: ModelPool): Tran
   };
 }
 
+/** 转写退回时用的那一个：能 `run`、有窗口就行。池、单个模型（features/finalizeSteps.ts 的 `ModelRunner`）都是。 */
+export interface TranscribeFallback {
+  run<T>(what: string, fn: (llm: LlmProvider) => Promise<T>): Promise<T>;
+  readonly primaryBudget: { contextWindow: number; maxOutputTokens: number };
+}
+
 /** 转写一次：照抄，温度 0、不带思考，输出上限用转写模型自己的。失败照池的规矩换同档其余。 */
 export function transcribeWith(
-  pool: ModelPool,
+  pool: TranscribeFallback,
   messages: ChatMessage[],
   label: string,
   timeoutMs: number,

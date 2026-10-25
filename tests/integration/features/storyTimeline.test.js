@@ -245,7 +245,8 @@ describe('补推：同步过、时间线里没有（或还推不出）的章', (
     // 第 4 章那一行补记时没推（补记不推时间了）。
     assert.deepEqual(plan.batches.map((b) => b.map((c) => c.order)), [[4, 5, 6, 7], [9]]);
     assert.deepEqual(plan.stale, [8]);
-    assert.deepEqual(plan.calls, { low: 2, high: 2, max: 2 });
+    // 一批写 1 次、转写 1 次，转写不合格重转 1 次（2026-10-25 起）。
+    assert.deepEqual(plan.calls, { low: 4, high: 4, max: 6, why: '每批写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次' });
   });
 
   test('按字数切批：一批最多 5 章，合计超过上限另起一批', () => {
@@ -260,7 +261,7 @@ describe('补推：同步过、时间线里没有（或还推不出）的章', (
     await bundle.timeBackfill.backfillTimeline(project);
     const c = h.confirms.at(-1);
     assert.match(c.message, /^从正文补推故事时间：第 4–7、9 章同步过/);
-    assert.ok(c.message.includes('预计 2 次调用'), c.message);
+    assert.ok(c.message.includes('预计 4 次调用，最多 6 次'), c.message);
     assert.ok(c.detail.includes('第 8 章同步之后正文又改过'), c.detail);
     assert.ok(!('contextDetail' in c.call));
     const [f] = await failuresOf(TIMELINE);

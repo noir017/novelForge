@@ -141,7 +141,7 @@ describe('同步：三章逐章定稿，角色状态与叙事线按章号走', (
     const { message, detail } = h.confirms.at(-1);
     assert.ok(message.startsWith('有 3 章写了正文还没同步'), message);
     assert.ok(message.includes('更新出场角色的当前状态、认这一章在叙事线上发生了什么、推这一章的故事时间'), message);
-    assert.ok(message.includes('预计 9–18 次调用'), message);
+    assert.ok(message.includes('预计 18–36 次调用，最多 54 次'), message);
     assert.ok(detail.includes('角色状态、叙事线与故事时间按章号逐章串行'), detail);
   });
 

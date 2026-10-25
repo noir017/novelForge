@@ -14,15 +14,19 @@
  *
  * 故事时间（2026-10-24 重做）单独一步、单独一次（features/storyTime.ts 的 `recordChapterTime`），与叙事线各算各的：认事件没成不挡它，
  * 它没成只挂黄 ❗ 在章节上。用叙事线那一个模型（同是「定稿」档）。
+ *
+ * 角色状态与故事时间 2026-10-25 起改成转写（按格式写自然语言，转写模型照抄成 JSON），转写调用由调用方给（`transcribe`），几步共用。
  */
 import { CancelledError, LlmProvider } from '../llm/provider';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { describeError, scoped } from '../runtime/logger';
 import { NovelProject } from '../model/project';
 import { Chapter, SummaryCast } from '../model/types';
-import { STATE_OP, StateUpdateOutcome, updateCharacterStates } from './characterState';
+import { STATE_OP, StateUpdateOutcome, stateCallsOf, updateCharacterStates } from './characterState';
 import { THREADS_OP, ThreadsOutcome, recordThreads } from './threads';
 import { TimeResult, recordChapterTime } from './storyTime';
+import { poolTranscriber } from './poolIO';
+import { TranscribeCall } from './transcribe';
 
 const log = scoped('同步');
 
@@ -33,7 +37,7 @@ export interface ModelRunner {
 }
 
 export interface StateAndThreadsOutcome {
-  /** 这三步实际调了几次模型（2–5：角色状态 0–1、叙事线 1–3、故事时间 1）。 */
+  /** 这三步实际调了几次模型（写 2–5 次：角色状态 0–1、叙事线 1–3、故事时间 1；加上转写的）。 */
   calls: number;
   states?: StateUpdateOutcome;
   /** 角色状态那一步没成（细纲照样算数）。 */
@@ -60,9 +64,12 @@ export async function updateStateAndThreads(
     threads: ModelRunner;
     signal?: AbortSignal;
     onStep?(step: 'state' | 'threads' | 'time'): void;
+    /** 转写那一次怎么调（2026-10-25 起）。缺省走「转写」那一档，那一档没有可用的模型时用叙事线那一个。 */
+    transcribe?: TranscribeCall;
   }
 ): Promise<StateAndThreadsOutcome> {
   const outcome: StateAndThreadsOutcome = { calls: 0 };
+  const transcribe = opts.transcribe ?? poolTranscriber(opts.signal ?? new AbortController().signal, opts.threads);
 
   opts.onStep?.('state');
   try {
@@ -70,6 +77,7 @@ export async function updateStateAndThreads(
       run: (what, fn) => opts.state.run(what, fn),
       budget: opts.state.primaryBudget,
       signal: opts.signal,
+      transcribe,
     });
     outcome.calls += outcome.states.calls;
     await clearFailures(project, 'chapter', chapter.relPath, STATE_OP);
@@ -77,8 +85,8 @@ export async function updateStateAndThreads(
     if (err instanceof CancelledError || opts.signal?.aborted) {
       throw err;
     }
-    // 请求发出去了钱就花了：失败也记一次（解析失败、网络错误都是发出去之后的事）。
-    outcome.calls += 1;
+    // 请求发出去了钱就花了：失败也记上（解析失败、网络错误都是发出去之后的事；没转成的带着写与转写的实数）。
+    outcome.calls += stateCallsOf(err);
     outcome.stateError = describeError(err);
     log.warn(`第 ${chapter.order} 章的角色状态没更新成：${outcome.stateError}`, err);
     await recordFailure(project, {
@@ -103,7 +111,7 @@ export async function updateStateAndThreads(
   }
 
   opts.onStep?.('time');
-  const time = await recordChapterTime(project, chapter, opts.threads, { signal: opts.signal });
+  const time = await recordChapterTime(project, chapter, opts.threads, { signal: opts.signal, transcribe });
   outcome.calls += time.calls;
   if (time.time) {
     outcome.time = time.time;
