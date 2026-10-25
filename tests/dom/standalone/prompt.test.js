@@ -137,7 +137,7 @@ describe('调模型之前的那一问（confirm 带 call）', { skip: JSDOM_SKIP
 
   // 细纲试点（2026-10-25）：转写不跟这一次挑的模型，那一行挑了模型也照样显示。
   test('不跟这一次挑的模型的活（转写）：挑了模型也照样显示', () => {
-    open({ requestId: 'k4', call: { ...CALL, fixed: ['转写 · 细纲整理成 JSON → 快速档：glm/glm-4-air（不跟这一次挑的模型）'] } });
+    open({ requestId: 'k4', call: { ...CALL, fixed: ['转写 · 整理成 JSON → 快速档：glm/glm-4-air（不跟这一次挑的模型）'] } });
     const [model] = selects();
     choose(model, 'or/claude');
     assert.ok(tiers().classList.contains('hidden'));

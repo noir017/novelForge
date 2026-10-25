@@ -8,7 +8,9 @@ import { ModelPool, createModelPool } from '../llm/pool';
 import type { ChatMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { BuildRequest, buildContext } from '../context/builder';
-import { CallOutcome, ChainIO, TRANSCRIBE_TEMPERATURE } from '../generation/structured';
+import { CallOutcome, ChainIO } from '../generation/structured';
+import { TRANSCRIBE_TEMPERATURE } from '../model/transcribe';
+import { TranscribeCall } from './transcribe';
 import { scoped } from '../runtime/logger';
 
 const log = scoped('模型池');
@@ -65,6 +67,27 @@ export function poolIO(
 export function lazyTranscriber(): () => Promise<ModelPool | undefined> {
   let pool: Promise<ModelPool | undefined> | undefined;
   return () => (pool ??= createModelPool({ task: 'transcribe', concurrent: false }));
+}
+
+/**
+ * 工程页任务（定稿、叙事线、角色卡、设定……）的转写调用（features/transcribe.ts 的 `TranscribeCall`）：走「转写」那一档，
+ * 第一次用到时才建池。那一档一个可用的模型都没有时用 `fallback`（干活那个池）并说一声；连它也没有就报错——
+ * `transcribeJson` 把它当成转写调用失败，写好的原文照这一步原来解析失败的走法处理。
+ */
+export function poolTranscriber(signal: AbortSignal, fallback?: ModelPool): TranscribeCall {
+  const own = lazyTranscriber();
+  const timeoutMs = readConfig().requestTimeoutMs;
+  return async (messages, label) => {
+    const pool = await own();
+    if (!pool && !fallback) {
+      throw new Error('转写那一档没有可用的模型');
+    }
+    if (!pool) {
+      log.warn(`${label}：转写那一档没有可用的模型，改用干活那个模型转写`);
+    }
+    const r = await transcribeWith(pool ?? fallback!, messages, label, timeoutMs, signal);
+    return { text: r.text, stop: r.stopReason };
+  };
 }
 
 /** 转写一次：照抄，温度 0、不带思考，输出上限用转写模型自己的。失败照池的规矩换同档其余。 */

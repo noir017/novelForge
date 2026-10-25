@@ -78,6 +78,8 @@ import {
   withoutNone,
 } from '../features/structuredJson';
 import { cnNumber } from '../model/timelineFile';
+import { TRANSCRIBE_TEMPERATURE } from '../model/transcribe';
+import { TranscribeCall, TranscribeResult, TranscribeSpec, transcribeJson } from '../features/transcribe';
 
 /** 一次调用的结果。`stop` 缺席 = 网关没报收尾原因（有的兼容实现压根不发）。 */
 export interface CallOutcome {
@@ -161,12 +163,27 @@ export class Tally {
   /** 转写一次（{@link ChainIO.transcribe}）。也算一次调用（第 4 条）。 */
   async transcribe(io: ChainIO, messages: ChatMessage[], label: string): Promise<CallOutcome> {
     this.calls++;
-    return io.transcribe ? io.transcribe(messages, label) : io.call(messages, label, { quiet: true, temperature: TRANSCRIBE_TEMPERATURE });
+    return chainTranscriber(io)(messages, label);
+  }
+  /**
+   * 照 features/transcribe.ts 的 `transcribeJson` 走一遍（链上的转写都走它，除了细纲批次自己那一套）：调用记在这本账上，
+   * 不合格、重转的说明也记上。
+   */
+  async transcribeJson<T>(io: ChainIO, source: string, spec: TranscribeSpec<T>): Promise<TranscribeResult<T>> {
+    const r = await transcribeJson(source, spec, chainTranscriber(io));
+    this.calls += r.calls;
+    this.note(...r.notes);
+    return r;
   }
 }
 
-/** 转写的温度：照抄，不要发挥。 */
-export const TRANSCRIBE_TEMPERATURE = 0;
+/** 链上的转写调用：`io.transcribe`，没实现的（测试里的假 IO）退回 `io.call`，不流进气泡、温度 0。 */
+export function chainTranscriber(io: ChainIO): TranscribeCall {
+  return (messages, label) =>
+    io.transcribe ? io.transcribe(messages, label) : io.call(messages, label, { quiet: true, temperature: TRANSCRIBE_TEMPERATURE });
+}
+
+export { TRANSCRIBE_TEMPERATURE };
 
 function span(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;

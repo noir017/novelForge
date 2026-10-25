@@ -250,7 +250,7 @@ describe('批量拆细纲', () => {
 
   // 细纲试点：转写不跟这一次挑的模型，单列一行、一直显示。
   test('确认框单列转写交给谁', () => {
-    assert.ok(confirm?.call.fixed?.some((x) => x.startsWith('转写 · 细纲整理成 JSON') && x.includes('不跟这一次挑的模型')), JSON.stringify(confirm?.call));
+    assert.ok(confirm?.call.fixed?.some((x) => x.startsWith('转写 · 整理成 JSON') && x.includes('不跟这一次挑的模型')), JSON.stringify(confirm?.call));
     assert.ok(!confirm.call.tiers.some((x) => x.startsWith('转写')), JSON.stringify(confirm.call));
   });
 
