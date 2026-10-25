@@ -8,7 +8,7 @@
  * | 整条后面跟水位之后的新事实（只到本章之前） | 条目落后于正文时模型照样拿得到新的那几句 |
  * | 条目整合到本章或更晚时 note 提醒可能剧透 | 回头重写前面的章时，条目里有之后的事 |
  * | 整条超了上限降成一句话、一句话超了上限丢，都写原因 | 第 2 条：不静默截断 |
- * | 排细纲时其余条目按出现章数列一览，超了的并成一条 | 规划时照抄已有的名字；几百条不逐条刷明细 |
+ * | 排细纲时其余条目列一览（近几章出现过的在前），超了的并成一条 | 规划时照抄已有的名字；写到后面开篇的高频词不霸屏；几百条不逐条刷明细 |
  * | 续写那几轮也带（只带点名与命中的） | 从前续写一条设定都不带 |
  * | 取消勾选的不占名额 | 作者排除一条，后面的补上来 |
  * | 整条的空行隔开，一句话的并成一张清单 | 消息里好读 |
@@ -258,16 +258,65 @@ describe('排细纲', () => {
     // 目录按拼音排（listFolders 的 zh-Hans-CN 排序）。
     assert.equal(categories.text, '本书的设定分类：地域、信物、杂项、宗门、宗门/正道（新设定的 category 从这里挑）。');
     // 精简：一句话最多 10 条。前两章（第 3、4 章只有第 3 章定稿）出现过的先占，
-    // 其余按出现章数降序：青崖镇 2 章、后山已带、青云宗 1 章……
+    // 其余近 10 章出现过的在前、按这几章里出现的章数降序：青崖镇 2 章、后山已带、青云宗 1 章……
     const lines = items.filter((i) => i.status === 'included' && i.id !== 'lore:categories');
     assert.equal(lines.length, 10, items.map((i) => `${i.label}:${i.status}`).join(' '));
     assert.equal(lines[0].label, '设定 · 后山');
     assert.equal(lines[1].label, '设定 · 青崖镇');
-    assert.ok(lines[1].note.startsWith('已有设定（出现 2 章）'), lines[1].note);
+    assert.equal(lines[1].note, '已有设定（近 10 章出现 2 章，最近第 2 章）');
     const rest = items.find((i) => i.id === 'lore:catalog');
     assert.equal(rest.status, 'dropped');
     assert.equal(rest.label, '设定 · 其余 7 条');
     assert.ok(rest.note.includes('一句话的已带满 10 条'), rest.note);
+  });
+});
+
+// 2026-10-25 外部报告：写到第 83 章排细纲，一览前几十条全是开篇几十章里的高频词——从前一律按全书出现章数排。
+describe('排细纲 · 写到后面', () => {
+  let late;
+  before(async () => {
+    late = await makeTempProject(bundle.project, { prefix: 'loreLayerLate', title: '后面' });
+    const seen = { 湖泊: [1, 2, 3, 4, 5, 6, 7, 8], 街市: [1, 2, 3, 4, 5], 圣地: [22, 25], 戒律: [26], 暗号: [28] };
+    for (const name of Object.keys(seen)) {
+      late.write(`.novelforge/lore/${name}.md`, entry(name, { brief: name }));
+    }
+    for (const no of [...new Set(Object.values(seen).flat())]) {
+      const names = Object.keys(seen).filter((name) => seen[name].includes(no));
+      late.write(`chapters/${pad3(no)}-第${no}章.md`, `# 第${no}章\n\n正文。\n`);
+      late.write(PLOT(no), plotText(no, { lore: names.map((n) => `- ${n}`).join('\n') }));
+    }
+    late.project.invalidate();
+  });
+  after(() => {
+    if (late) cleanup(late.dir);
+  });
+
+  const plan = (detail) =>
+    bundle.builder.buildContext(late.project, { action: PLAN, target: { kind: 'plot', plotRelPath: PLOT(30) }, ask: '' }, config(detail));
+
+  test('近几章（与角色图谱同一个数）出现过的在前，按这几章里出现的章数；更早的在后，按全书出现章数', async () => {
+    const lines = loreItems(await plan(1)).filter((i) => i.id !== 'lore:categories');
+    assert.deepEqual(
+      lines.map((i) => [i.label, i.note]),
+      [
+        ['设定 · 暗号', '第 28 章出现过'],
+        ['设定 · 圣地', '已有设定（近 10 章出现 2 章，最近第 25 章）'],
+        ['设定 · 戒律', '已有设定（近 10 章出现 1 章，最近第 26 章）'],
+        ['设定 · 湖泊', '已有设定（出现 8 章，近 10 章没出现）'],
+        ['设定 · 街市', '已有设定（出现 5 章，近 10 章没出现）'],
+      ]
+    );
+  });
+
+  test('「完整」那一级不限近几章：照旧按全书出现章数', async () => {
+    const lines = loreItems(await plan(4)).filter((i) => i.note?.startsWith('已有设定'));
+    assert.deepEqual(
+      lines.map((i) => [i.label, i.note]),
+      [
+        ['设定 · 湖泊', '已有设定（出现 8 章）'],
+        ['设定 · 街市', '已有设定（出现 5 章）'],
+      ]
+    );
   });
 });
 

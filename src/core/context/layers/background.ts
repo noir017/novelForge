@@ -133,7 +133,7 @@ export const characters: LayerFn = async (a, spec) => {
  * - R0 本章细纲「设定」一节点名的（没定稿是计划，定稿过是实际）——整条；
  * - R1 关键词命中：作者这次的话 + 本章细纲（接着写时再加本章已写的末尾）——整条；
  * - R2 前几章（`castSummaries` 章）定稿细纲「设定」一节出现过的——一行；
- * - R3 只在大纲、细纲阶段：其余条目按出现章数降序——一行，让规划时照抄已有的名字，不另起一个。
+ * - R3 只在大纲、细纲阶段：其余条目一行一条，让规划时照抄已有的名字，不另起一个。近几章出现过的在前（{@link catalogOrder}）。
  *
  * 续写那几轮只要 R0、R1：前文那几章的设定第一次调用已经带过了。
  *
@@ -255,12 +255,14 @@ export const lore: LayerFn = async (a, spec) => {
       }
     }
     if (planning) {
-      // 稳定排序：出现章数一样的保持 listLore 的顺序（按路径，也就是按分类）。
-      const rest = index.known
-        .filter((r) => !picked.has(r.entry.slug))
-        .sort((x, y) => y.chapters.length - x.chapters.length);
-      for (const r of rest) {
-        pick(r.entry, false, r.chapters.length > 0 ? `已有设定（出现 ${r.chapters.length} 章）` : '已有设定');
+      // 大纲、细纲：近几章出现过的在前（`rosterRecent`，与规划时的角色图谱同一个「近几章」）。排设定清单是盘点全部，照旧。
+      const recentSize = a.limits.rosterRecent;
+      const first = a.focus.range?.from ?? a.request.range?.from ?? (Number.isFinite(a.focus.no) ? a.focus.no : undefined);
+      const to = first ?? index.known.reduce((max, r) => Math.max(max, r.chapters[r.chapters.length - 1] ?? 0), 0) + 1;
+      const window = !listing && Number.isFinite(recentSize) ? { from: to - recentSize, to, size: recentSize } : undefined;
+      const rest = catalogOrder(index.known.filter((r) => !picked.has(r.entry.slug)), window);
+      for (const { record, reason } of rest) {
+        pick(record.entry, false, reason);
         catalog++;
       }
     }
@@ -358,6 +360,34 @@ export const lore: LayerFn = async (a, spec) => {
 /** 展开一条设定时，这一条自己写着的东西（标题、关键词、一句话、正文含暗设）：关键词命中也看它。 */
 function selfText(entry: LoreEntry): string {
   return [entry.title, ...entry.keywords, entry.brief, entry.body].join('\n');
+}
+
+/**
+ * R3 一览的先后（2026-10-25）。给了 `window`（大纲、细纲：这一次要排的第一章往前数 `size` 章）：这几章里出现过的在前，
+ * 按这几章里出现的章数、再按最近出现的那一章；没出现过的在后，按全书出现章数。从前一律按全书出现章数，写到八十章，开篇
+ * 几十章里的高频词永远排在最前面、占满一句话的名额。没给（排设定清单、「完整」那一级）只按全书出现章数。
+ * 稳定排序：一样的保持 listLore 的顺序（按路径，也就是按分类）。
+ */
+function catalogOrder(
+  records: readonly LoreRecord[],
+  window?: { from: number; to: number; size: number }
+): { record: LoreRecord; reason: string }[] {
+  const rows = records.map((record) => {
+    // `chapters` 是排好序的章号：这几章里的最后一个就是最近出现的那一章。
+    const seen = window ? record.chapters.filter((no) => no >= window.from && no < window.to) : [];
+    return { record, hits: seen.length, last: seen[seen.length - 1] ?? 0 };
+  });
+  rows.sort((x, y) => y.hits - x.hits || y.last - x.last || y.record.chapters.length - x.record.chapters.length);
+  return rows.map(({ record, hits, last }) => {
+    const n = record.chapters.length;
+    const reason =
+      hits > 0
+        ? `已有设定（近 ${window!.size} 章出现 ${hits} 章，最近第 ${last} 章）`
+        : n === 0
+          ? '已有设定'
+          : `已有设定（出现 ${n} 章${window ? `，近 ${window.size} 章没出现` : ''}）`;
+    return { record, reason };
+  });
 }
 
 /** 接着写时本章已写的末尾（续写那几轮是 step 里那一截）：关键词命中也看它。 */
