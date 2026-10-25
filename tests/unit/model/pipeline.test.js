@@ -999,7 +999,10 @@ describe('pipeline.ts · 全书状态推导', () => {
 
     // 一批 5 章：通常 1 次，上限 3n（上游 blueprint-batch-policy 的式子）。
     const plots = pipeline.deriveBookNextStep('plots', book({ nextChapterNo: 1 }));
-    assert.deepEqual(plots.calls, { low: 1, high: 1, max: 15 });
+    // 细纲试点：写 1 次、转写 1 次；上限 6n − 1。
+    const { why, ...plotCalls } = plots.calls;
+    assert.deepEqual(plotCalls, { low: 2, high: 2, max: 29 });
+    assert.ok(why.includes('转写'), why);
   });
 
   test('下一章有细纲 → 在写（交给单章状态机）', () => {
@@ -1067,14 +1070,14 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
     assert.deepEqual(plan.chapters, [1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     // 第 4、5 章把区间断开：1–3 一批；6–14 再按 5 章切。
     assert.deepEqual(plan.batches, [[1, 2, 3], [6, 7, 8, 9, 10], [11, 12, 13, 14]]);
-    // 三批各 1 次；上限 3n 按要写的章数加总。有叙事线时不排线。
-    assert.deepEqual(plan.calls, { low: 3, high: 3, max: 36 });
+    // 三批各 2 次（写 1 次、转写 1 次）；上限每批 6n − 1 加总。有叙事线时不排线。
+    assert.deepEqual(plan.calls, { low: 6, high: 6, max: 69 });
   });
 
   // 叙事线重做（设计稿 ⚑8）：一条线都没有时开拆之前先从情节大纲排一次；拆完不再排。
   test('一条叙事线都没有：先排一次，+1；没有要拆的就不排', () => {
     const plan = pipeline.planPlotBatches({ from: 1, to: 14, filledNos: [4, 5], planThreads: true });
-    assert.deepEqual(plan.calls, { low: 4, high: 4, max: 37 });
+    assert.deepEqual(plan.calls, { low: 7, high: 7, max: 70 });
     const none = pipeline.planPlotBatches({ from: 7, to: 5, filledNos: [5, 6, 7], planThreads: true });
     assert.deepEqual(none.calls, { low: 0, high: 0, max: 0 });
   });
@@ -1094,7 +1097,8 @@ describe('pipeline.ts · 批量拆细纲的切分', () => {
   });
 
   test('单章的下一步也写调用次数', () => {
-    assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.ONE_CALL);
+    assert.deepEqual(pipeline.deriveNextStep('plot', { no: 3, words: 0, ratio: 0, upstreamStale: false }).calls, pipeline.PLOT_CALLS);
+    assert.deepEqual({ ...pipeline.PLOT_CALLS, why: '' }, { low: 2, high: 2, max: 3, why: '' });
   });
 
   // D17：定稿 = 摘要 + 出场角色的当前状态；叙事线重做之后叙事线 1–3 次（认事件每次都跑，设计稿 ⚑6），
@@ -1203,8 +1207,8 @@ describe('pipeline.ts · 批量写章的切分', () => {
     assert.deepEqual(plan.plotBatches, [[3, 4, 5, 6, 7], [8], [10]]);
     assert.equal(plan.stopAt, undefined);
     const writing = pipeline.planWriteBatch({ ...base, plotFilledNos: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], from: 1, to: 10 }).calls;
-    // 三批细纲各 1 次（上限 3n）。边写边拆不排叙事线（叙事线重做：计划随细纲写进线里，不再拆完排一次）。
-    assert.deepEqual(plan.calls, { low: writing.low + 3, high: writing.high + 3, max: writing.max + 15 + 3 + 3 });
+    // 三批细纲各 2 次（写 1 次、转写 1 次；上限 6n − 1）。边写边拆不排叙事线（叙事线重做：计划随细纲写进线里，不再拆完排一次）。
+    assert.deepEqual(plan.calls, { low: writing.low + 6, high: writing.high + 6, max: writing.max + 29 + 5 + 5 });
   });
 
   test('边写边拆：超出大纲覆盖的第一章在它前面收住', () => {

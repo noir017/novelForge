@@ -25,6 +25,8 @@ export interface CallPrompt {
   model: string;
   /** 按分档时这几项活各交给谁（`describeTaskModels`），一行一项。选了具体模型就不必看。 */
   tiers: string[];
+  /** 不管这一次挑哪个模型都照档走的活（眼下只有转写），一行一项，一直显示。 */
+  fixed?: string[];
   /** 打开时的级别。缺席 = 这一次的上下文不看详细度，不显示那个下拉框。 */
   contextDetail?: ContextDetail;
 }

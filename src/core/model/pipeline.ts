@@ -442,10 +442,10 @@ function hintOf(stage: CreationStage, capability: Capability, target?: CreationT
   }
   if (stage === 'plot') {
     if (capability === 'settle') {
-      return '把刚才讨论出的走向整理成这一章的细纲，以讨论里的结论为准';
+      return `把刚才讨论出的走向整理成这一章的细纲，以讨论里的结论为准。${describeCalls(PLOT_CALLS)}`;
     }
     if (capability === 'generate') {
-      return '按你在输入框里描述的走向填成这一章的细纲';
+      return `按你在输入框里描述的走向填成这一章的细纲。${describeCalls(PLOT_CALLS)}`;
     }
   }
   if (isOutlineContinue({ stage, capability })) {
@@ -903,7 +903,7 @@ export function addCalls(a: CallEstimate, b: CallEstimate): CallEstimate {
   return { low: a.low + b.low, high: a.high + b.high, max: a.max + b.max };
 }
 
-/** 一次就完的那种：前提、世界观、大纲、单章细纲、定稿时更新细纲。 */
+/** 一次就完的那种：前提、世界观、大纲、定稿时更新细纲。 */
 export const ONE_CALL: CallEstimate = { low: 1, high: 1, max: 1 };
 
 /**
@@ -1219,14 +1219,19 @@ export function settingCalls(doc: SettingDoc): CallEstimate {
 }
 
 /**
- * 一批 n 章细纲：1 次；截断或解码失败时对半拆（满二叉树 2n − 1 次）、每章至多
- * 一次紧凑重建（n 次）、全程一次语法修复（1 次）——上限 3n。与上游
- * `blueprint-batch-policy.ts` 的 `planBlueprintGenerationCost` 同一个式子。
+ * 一批 n 章细纲（2026-10-25 细纲试点起多一步转写）：写 1 次、转写模型照抄成 JSON 1 次。截断或转写不出来时对半拆
+ * （满二叉树 2n − 1 次）、每章至多一次紧凑重建（n 次），写细纲的调用最多 3n − 1 次；每一次写完转写一次、全程再重转
+ * 一次，转写最多 3n 次——上限 6n − 1。拆半与重建的式子同上游 `blueprint-batch-policy.ts` 的 `planBlueprintGenerationCost`。
  */
 export function blueprintCalls(n: number): CallEstimate {
   const k = Math.max(0, Math.floor(n));
-  return k === 0 ? { low: 0, high: 0, max: 0 } : { low: 1, high: 1, max: 3 * k };
+  return k === 0
+    ? { low: 0, high: 0, max: 0 }
+    : { low: 2, high: 2, max: 6 * k - 1, why: '写 1 次、转写模型照抄成 JSON 1 次；被截断或转写不成时自动拆小重试' };
 }
+
+/** 单章细纲（写第 N 章细纲、落定细纲）：写 1 次、转写 1 次；转写不合格重转 1 次。 */
+export const PLOT_CALLS: CallEstimate = { low: 2, high: 2, max: 3, why: '写 1 次、转写模型照抄成 JSON 1 次；转写不合格重转 1 次' };
 
 // ---------------------------------------------------------------- 细纲批次
 
@@ -1453,7 +1458,7 @@ export function deriveNextStep(stage: PlotStage, f: NextStepFacts): NextStepPlan
         capability: 'generate',
         label: `写第 ${f.no} 章细纲`,
         hint: '先把这一章要发生什么定下来：梗概、出场人物、关键事件、看点。',
-        calls: ONE_CALL,
+        calls: PLOT_CALLS,
       };
 
     case 'manuscript':

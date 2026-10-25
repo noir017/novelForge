@@ -438,7 +438,7 @@ describe('拆完展开本批新设定', () => {
   const OUTLINE = outlineOf(20, { title: '大纲', text: { 1: '林昭进天机阁。' } });
   const blueprints = (messages) => {
     const user = messages[messages.length - 1].content;
-    const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+    const m = /写第 (\d+)(?:–(\d+))? 章的细纲：/.exec(user);
     const from = Number(m?.[1] ?? 1);
     const to = Number(m?.[2] ?? from);
     const items = [];
@@ -461,7 +461,7 @@ describe('拆完展开本批新设定', () => {
   /** 拆细纲、排叙事线、展开：按消息认是哪一步。 */
   const steps = (messages) => {
     const user = messages[messages.length - 1].content;
-    if (/chapterNumber 必须覆盖/.test(user)) return blueprints(messages);
+    if (/写第 \d+(?:–\d+)? 章的细纲：/.test(user)) return blueprints(messages);
     if (titleOf(messages)) return { text: expansion({ body: { 概要: '暗河下的集市。' } }), stop: 'end' };
     return { text: '{"threads":[]}', stop: 'end' };
   };

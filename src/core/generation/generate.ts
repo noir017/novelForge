@@ -74,9 +74,12 @@ import {
   completeLoreExpand,
   completeLoreSettle,
   completeLoreList,
+  completePlot,
   completeRoster,
   singleShotNotes,
+  TRANSCRIBE_TEMPERATURE,
 } from './structured';
+import { lazyTranscriber, transcribeWith } from '../features/poolIO';
 import { LoreListKnown } from '../features/loreList';
 import { LoreExpandKnown } from '../features/loreExpand';
 import { LoreSettleKnown } from '../features/loreSettle';
@@ -406,6 +409,7 @@ export async function generate(
     let written: ManuscriptChainResult | undefined;
     let report: ReviewReport | undefined;
     if (chain) {
+      const transcriber = lazyTranscriber();
       const io: ChainIO = {
         messages: built.messages,
         build: async (patch) => (await buildContext(project, { ...request, ...patch, providerMaxInputTokens }, config)).messages,
@@ -417,6 +421,21 @@ export async function generate(
           handlers.onDelta(head, full);
           log.info(`${what}：${label}`);
           return streamOnce(messages, opts?.progress, { quiet: opts?.quiet, temperature: opts?.temperature });
+        },
+        // 转写（细纲试点）：不跟对话页选的模型，走「转写」那一档（model/tiers.ts）。气泡里只加一行，JSON 在链结束时整份换上去。
+        transcribe: async (messages, label) => {
+          const own = await transcriber();
+          const head = `\n\n——${label}${own ? `（${own.label}）` : ''}——\n\n`;
+          full += head;
+          handlers.onDelta(head, full);
+          if (!own) {
+            log.warn(`${what}：${label}`, '转写那一档没有可用的模型，改用干活那个模型转写');
+            return streamOnce(messages, undefined, { quiet: true, temperature: TRANSCRIBE_TEMPERATURE });
+          }
+          log.info(`${what}：${label}`, `转写模型 ${own.label}`);
+          const r = await transcribeWith(own, messages, label, config.requestTimeoutMs, options.signal);
+          usages.push(r.usage);
+          return { text: r.text, stop: r.stopReason };
         },
         reset: (text) => {
           full = text;
@@ -586,6 +605,8 @@ async function runChain(
       return completeLoreSettle(first, io, await loreSettleKnown(project));
     case 'blueprints':
       return completeBlueprints(first, io, chaptersOf(request.range!));
+    case 'plot':
+      return completePlot(first, io, await plotNoOf(project, request));
     case 'manuscript':
     case 'revision':
       // 正文那一条要的东西（写法、已有正文、上一章结尾）在 `planWriting` 里，走不到这里。
@@ -593,6 +614,15 @@ async function runChain(
     case 'review':
       throw new Error('审稿链缺了待审的正文。');
   }
+}
+
+/**
+ * 单章细纲是第几章：细纲在磁盘上就按它认，还没有就看文件名，再不行用请求里的章号。转写合同要它（原文不写章号时就是这一章）。
+ */
+async function plotNoOf(project: NovelProject, request: Omit<BuildRequest, 'providerMaxInputTokens'>): Promise<number | undefined> {
+  const relPath = plotOfTarget(request.target);
+  const plot = relPath ? await project.resolvePlot(relPath) : undefined;
+  return plot?.no ?? (relPath ? parsePlotFileName(basename(relPath))?.no : undefined) ?? request.targetNo;
 }
 
 /**

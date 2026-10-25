@@ -1507,23 +1507,20 @@ describe('装配：四阶段配方', () => {
     assert.equal(fullTokens(pc), 0);
   });
 
-  // 单章也用批次合同的单项形式（第 22 条：两个入口契约一致），字段对到细纲的七节（连续性事实除外）。
-  // 关键事件与定稿的写法一样是一条一件事的数组（⚑B）。原来的 foreshadowing 换成了 threads（叙事线二期，不进细纲）。
-  test('细纲的输出契约是蓝图合同的单项形式，字段对到七节', () => {
-    assert.ok(
-      lastOf(pg).includes(
-        '【精确 JSON 形状】{"blueprints":[{"chapterNumber":2,"title":"…","synopsis":"…","characters":["…"],"timePlace":"…","keyEvents":["…"],"highlights":["…"],"stateChange":"…","threads":[{"line":"…","type":"推进","what":"…"}]}]}'
-      ),
-      lastOf(pg).slice(-1600)
-    );
+  // 单章也用批次格式的单章形式（第 22 条：两个入口契约一致），小标题对到细纲的七节（连续性事实除外）。
+  // 细纲试点（2026-10-25）：按小标题写自然语言，JSON 由转写模型照抄。原来的 foreshadowing 换成了叙事线那一节（叙事线二期，不进细纲）。
+  test('细纲的输出契约是按小标题写的单章形式，小标题对到七节', () => {
+    const user = lastOf(pg);
+    assert.ok(user.includes('写第 2 章的细纲：以「## 第2章：标题」开头（章号用阿拉伯数字）。'), user.slice(-2400));
+    assert.ok(user.includes('### 梗概') && user.includes('### 关键事件') && user.includes('### 叙事线'), user.slice(-1600));
+    assert.ok(!user.includes('{"blueprints"'), user.slice(-1600));
   });
 
   test('契约的关键事件按发生顺序一条一件事，必填项只要至少一条', () => {
     const user = lastOf(pg);
-    assert.ok(user.includes('keyEvents 是字符串数组，按发生的顺序一条一件事，3–6 条，合计 100–300 字'), user.slice(-1600));
-    assert.ok(user.includes('title、synopsis 必须是非空字符串，keyEvents 至少一条'), user.slice(-1600));
-    assert.ok(user.includes('在 keyEvents 末尾追加一条「容量冲突：…」'), user.slice(-2400));
-    assert.ok(!user.includes('keyEvents 字符串'), user.slice(-2400));
+    assert.ok(user.includes('- 关键事件：一条一行、行首写「- 」，按发生的顺序一条一件事，3–6 条，合计 100–300 字'), user.slice(-2400));
+    assert.ok(user.includes('一个都不能少，哪一节没有内容就写「无」'), user.slice(-2400));
+    assert.ok(user.includes('在关键事件末尾追加一条「容量冲突：…」'), user.slice(-3200));
   });
 
   // role 删了（上面的 JSON 形状里没有它；newCharacters 里那个 role 是角色定位，另一回事）。
@@ -2324,7 +2321,7 @@ describe('装配：二期的新层与移植的契约', () => {
       target: { kind: 'plot', plotRelPath: PLOT4 },
       ask: '',
       range: { from: 4, to: 4 },
-      step: { kind: 'blueprintCompact', diagnostic: 'blueprints[0].keyEvents 是空的' },
+      step: { kind: 'blueprintCompact', diagnostic: '「关键事件」那一节缺了或是空的' },
     });
     config = await build({
       action: GEN('setting'),
@@ -2412,7 +2409,7 @@ describe('装配：二期的新层与移植的契约', () => {
   test('批次契约：覆盖第 4–8 章、容量按每章字数', () => {
     const user = lastOf(batch);
     assert.ok(user.includes('为接下来的第 4–8 章生成极其严密的「保姆级执行目录细纲」'), user.slice(-3000));
-    assert.ok(user.includes('chapterNumber 必须覆盖第 4–8 章的每一章'), user.slice(-3000));
+    assert.ok(user.includes('写第 4–8 章的细纲：一章一份，按章号顺序'), user.slice(-3000));
     assert.ok(user.includes('每章正文目标约 400 字，可接受范围 320–480 字'), user.slice(-3000));
     // 第 4 章起已经过了黄金三章。
     assert.ok(!user.includes('黄金三章法则') && user.includes('小高潮循环'), user.slice(-3000));
@@ -2442,7 +2439,7 @@ describe('装配：二期的新层与移植的契约', () => {
 
   test('紧凑重建写明上次哪里不合格，只要这一章', () => {
     const user = lastOf(compact);
-    assert.ok(user.includes('blueprints[0].keyEvents 是空的') && user.includes('必须且只能返回 chapterNumber=4 的一项'), user.slice(-800));
+    assert.ok(user.includes('【上次输出不合格】「关键事件」那一节缺了或是空的') && user.includes('只写第 4 章这一章'), user.slice(-800));
   });
 
   // ------------------------------------------------------------ 小说配置

@@ -7,6 +7,7 @@
  * | 用例组 | 钉的是什么 |
  * |---|---|
  * | 语法修复证据 | 修过的那份只许补闭合括号、改标点；改一个字就拒收（不许借修复补造事实） |
+ * | 转写有没有照抄 | 细纲试点：转写的每段文字都得出自原文，去掉列表记号、并条拆条、换引号不算改；「无」换成空的 |
  * | 细纲批次 | 缺必填字段报诊断（交给拆半 / 紧凑重建）；可以空着的四个字段宽松收；超长截断不作废；新角色必须在出场名单里；关键事件是一条一件事的数组，给成一段字按换行与分号切 |
  * | 角色图谱 | 清单里关系不闭合、没标主角照收并说明；详情以冻结清单为准；关系由清单生成到双方卡上 |
  * | 设定清单 | 分类规范成目录路径；已有条目照抄名字、以实际目录为准；人名丢掉；超过 30 条只留 30 条；详情以冻结清单为准、三节合计 300 字 |
@@ -75,6 +76,56 @@ describe('structuredJson.ts · 语法修复的证据校验', () => {
     assert.deepEqual(J.singleJsonObject('前言 {"a": 1} 后记').value, { a: 1 });
     assert.equal(J.singleJsonObject('{"a": 1} {"b": 2}').reason, 'multiple');
     assert.equal(J.singleJsonObject('{"a": {"b": 1}').reason, 'truncated');
+  });
+});
+
+// 细纲试点（2026-10-25）：写细纲的模型按小标题写，转写模型照抄成 JSON——每一段文字都得出自原文。
+describe('structuredJson.ts · 转写有没有照抄', () => {
+  const SKIP = new Set(['chapterNumber', 'type']);
+  const source = ['## 第3章：雨夜', '### 关键事件', '- 林昭在山门外踩点。', '- 他翻墙进了后院，落在「藏书阁」门口。', '### 叙事线', '- 青云旧案·推进：林昭摸到藏书阁。'].join('\n');
+
+  test('去掉行首的「-」、把两行并成一条、换个引号：都算照抄', () => {
+    const value = {
+      title: '雨夜',
+      keyEvents: ['林昭在山门外踩点', '林昭在山门外踩点。他翻墙进了后院，落在"藏书阁"门口'],
+      threads: [{ line: '青云旧案', type: '推进', what: '林昭摸到藏书阁。' }],
+    };
+    assert.deepEqual(J.unfaithfulStrings(source, value, SKIP), []);
+  });
+
+  test('改了一个字、补了原文没有的一句：交回那几段', () => {
+    const value = { keyEvents: ['林昭在山门外踩点。', '林昭在山门外踩了点。', '沈青在井边等他。'] };
+    assert.deepEqual(J.unfaithfulStrings(source, value, SKIP), ['林昭在山门外踩了点。', '沈青在井边等他。']);
+  });
+
+  test('按对应关系填的键不比；交回的最多几段，长的截到 30 字', () => {
+    assert.deepEqual(J.unfaithfulStrings(source, { chapterNumber: 3, threads: [{ type: '收束' }] }, SKIP), []);
+    const long = '这一句是原文里根本没有的很长很长的一段话，转写模型自己编出来的，比三十个字还要长一些。';
+    const off = J.unfaithfulStrings(source, { a: [long, '甲', '乙', '丙'] }, SKIP);
+    assert.equal(off.length, 3);
+    assert.ok(off[0].endsWith('…') && Array.from(off[0]).length === 31, off[0]);
+  });
+
+  // 坏了语法的 JSON 也交给转写理顺：原文里的 \n 还是转义的样子，还原了再比。
+  test('原文是坏了语法的 JSON：转义还原了再比', () => {
+    const broken = '{"blueprints":[{"keyEvents":"林昭踩点；\\n翻墙进了后院",}]}';
+    assert.deepEqual(J.unfaithfulStrings(broken, { keyEvents: ['林昭踩点', '翻墙进了后院'] }, SKIP), []);
+  });
+
+  test('「无」换成空的，列表里的去掉', () => {
+    assert.deepEqual(J.withoutNone({ a: '无', b: ['无', '甲', '（无）'], c: { d: '无。' }, e: 3, f: '无名氏' }), {
+      a: '',
+      b: ['甲'],
+      c: { d: '' },
+      e: 3,
+      f: '无名氏',
+    });
+  });
+
+  test('整段是 JSON 就取它，否则取唯一一个完整对象；都不是给 undefined', () => {
+    assert.deepEqual(J.jsonValueOf('[1, 2]'), [1, 2]);
+    assert.deepEqual(J.jsonValueOf('好的：{"a": 1}'), { a: 1 });
+    assert.equal(J.jsonValueOf('## 第3章：雨夜'), undefined);
   });
 });
 

@@ -100,11 +100,11 @@ function reply(messages) {
       ],
     });
   }
-  if (user.includes('chapterNumber 必须覆盖第 1–5 章')) {
+  if (user.includes('写第 1–5 章的细纲：')) {
     batchPrompt = user;
     return JSON.stringify({ blueprints: [1, 2, 3, 4, 5].map((no) => blueprint(no, PLANS[no])) });
   }
-  if (user.includes('chapterNumber 必须覆盖第 3 章的每一章')) {
+  if (user.includes('写第 3 章的细纲：')) {
     singlePrompt = user;
     // 重拆第 3 章：这一次没安排收玉佩，只推进主线。
     return JSON.stringify({ blueprints: [blueprint(3, [{ line: '青崖旧案', type: '推进', what: '重拆之后：林昭先去了井边' }])] });

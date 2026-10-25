@@ -10,7 +10,7 @@
  * | 角色图谱 | 身份清单 → 每批 3 人补详情；截断拆半；关系由清单生成到双方卡上；性别在清单里定、落进卡的 frontmatter |
  * | 细纲批次 | 截断对半拆，后一半看得见前一半；写入卡片列出会新建的角色卡（D19）与降级说明（第 2 条） |
  * | 细纲批次 · 漏章 | 模型正常收尾却漏写：报错、不出卡片、磁盘一个字节不动（fail-closed） |
- * | 细纲批次 · 语法修复 | 只改标点的修复收下；改了内容的拒收 |
+ * | 细纲批次 · JSON 语法坏了 | 细纲试点起交给转写理顺：照抄的收下；改了内容的不收、重转一次 |
  * | 细纲批次 · 缺字段 | 单章紧凑重建一次，写明上次哪里不合格 |
  * | 大纲续写 | 只并进那一段，纯续写不弹审阅 |
  */
@@ -396,33 +396,40 @@ describe('细纲批次 · 漏章 fail-closed', () => {
   });
 });
 
-describe('细纲批次 · 语法修复', () => {
+// 细纲试点（2026-10-25）：从前的语法修复换成了转写——坏了语法的 JSON 也交给转写模型理顺，照抄的收下，改了字的重转。
+describe('细纲批次 · JSON 语法坏了交给转写', () => {
   const broken = batchOf(bp(6), bp(7)).replace(/}]}$/, '},]}');
 
-  test('只改标点的修复收下', async () => {
+  test('照抄的转写收下', async () => {
     fake.reset([{ text: broken, stop: 'end' }, { text: batchOf(bp(6), bp(7)), stop: 'end' }]);
     onGate = async () => 'skip';
     const r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 7 } });
     assert.equal(fake.callCount(), 2);
-    assert.ok(fake.calls[1][0].content.includes('结构化 JSON 语法修复器'), fake.calls[1][0].content);
-    assert.ok(r.gate && r.gate.detail.includes('修了一次（只改标点）'), JSON.stringify(r.gate ?? r.errors));
+    assert.ok(fake.calls[1][0].content.includes('格式转写员'), fake.calls[1][0].content);
+    assert.ok(r.gate && r.gate.detail.includes('调了 2 次'), JSON.stringify(r.gate ?? r.errors));
   });
 
-  // 修复只许改标点——借机把关键事件改写一遍，就是一次没经过装配器的第二次生成。
-  test('改了内容的修复拒收', async () => {
-    fake.reset([{ text: broken, stop: 'end' }, { text: batchOf(bp(6, { keyEvents: ['改写过的事件'] }), bp(7)), stop: 'end' }]);
+  // 转写只许照抄——借机把关键事件改写一遍，就是一次没经过装配器的第二次生成。
+  test('改了内容的转写不收，重转一次', async () => {
+    fake.reset([
+      { text: broken, stop: 'end' },
+      { text: batchOf(bp(6, { keyEvents: ['改写过的事件'] }), bp(7)), stop: 'end' },
+      { text: batchOf(bp(6), bp(7)), stop: 'end' },
+    ]);
+    onGate = async () => 'skip';
     const r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 7 } });
-    assert.equal(r.gate, undefined);
-    assert.ok(r.errors.some((m) => m.includes('语法修复改动了细纲的内容')), r.errors.join('|'));
+    assert.equal(fake.callCount(), 3);
+    assert.ok(fake.calls[2][1].content.includes('【上次转写不合格】这几处不是原文里的字：「改写过的事件」'), fake.calls[2][1].content.slice(0, 400));
+    assert.ok(r.gate && r.gate.detail.includes('重转一次'), JSON.stringify(r.gate ?? r.errors));
   });
 
-  // 复跑报告问题 7：模型在结尾多写了一个 `]`，修复只删了它，从前被判成改了内容、整批白花 2 次。
-  test('结尾多写了一个收尾括号、修复只删了它：收下', async () => {
+  // 复跑报告问题 7：模型在结尾多写了一个 `]`——转写理顺之后照收。
+  test('结尾多写了一个收尾括号：转写理顺之后收下', async () => {
     fake.reset([{ text: batchOf(bp(6), bp(7)).replace(/]}$/, ']]}'), stop: 'end' }, { text: batchOf(bp(6), bp(7)), stop: 'end' }]);
     onGate = async () => 'skip';
     const r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 7 } });
     assert.equal(fake.callCount(), 2);
-    assert.ok(r.gate && r.gate.detail.includes('修了一次（只改标点）'), JSON.stringify(r.gate ?? r.errors));
+    assert.ok(r.gate, JSON.stringify(r.errors));
   });
 });
 
@@ -441,7 +448,7 @@ describe('细纲批次 · 单章缺字段 → 紧凑重建', () => {
 
   test('重建那一次写明上次哪里不合格', () => {
     assert.equal(fake.callCount(), 2);
-    assert.ok(userOf(1).includes('blueprints[0].synopsis') && userOf(1).includes('必须且只能返回 chapterNumber=6 的一项'), userOf(1).slice(-600));
+    assert.ok(userOf(1).includes('「梗概」那一节缺了或是空的') && userOf(1).includes('只写第 6 章这一章'), userOf(1).slice(-600));
   });
 
   test('卡片上说出重建过', () => {
@@ -462,9 +469,9 @@ describe('细纲批次 · 关键事件空着 → 紧凑重建，一段字照收'
     r = await send({ stage: 'plot', capability: 'generate', target: PLOT_T(6), range: { from: 6, to: 6 } });
   });
 
-  test('重建那一次写明是 keyEvents 空着', () => {
+  test('重建那一次写明是关键事件空着', () => {
     assert.equal(fake.callCount(), 2);
-    assert.ok(userOf(1).includes('blueprints[0].keyEvents') && userOf(1).includes('是空的'), userOf(1).slice(-600));
+    assert.ok(userOf(1).includes('「关键事件」那一节缺了或是空的'), userOf(1).slice(-600));
     assert.ok(r.gate.detail.includes('单章重建一次'), r.gate.detail);
   });
 

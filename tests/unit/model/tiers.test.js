@@ -165,6 +165,29 @@ describe('模型分档的配置容错', () => {
     });
   });
 
+  // 细纲试点（2026-10-25）：作者定的是固定的转写模型——确认框上为这一次钉的模型不管它，它照档走。
+  describe('转写不跟这一次钉的模型', () => {
+    const base = { models: ['glm/glm-4-plus'], tierModels: { fast: ['glm/glm-4-air'], balanced: [], quality: [] }, taskTiers: {} };
+
+    test('钉了模型：别的活只用它，转写照样走快速档', () => {
+      const pinned = { ...base, pinnedModel: 'ds/deepseek-chat' };
+      assert.deepEqual(tiersMod.refsForTask(pinned, 'plotOutline').refs, ['ds/deepseek-chat']);
+      const t = tiersMod.refsForTask(pinned, 'transcribe');
+      assert.deepEqual(t.refs, ['glm/glm-4-air']);
+      assert.equal(t.pinned, false);
+    });
+
+    test('那一档没配：沿用默认模型', () => {
+      const t = tiersMod.refsForTask({ ...base, tierModels: { fast: [], balanced: [], quality: [] }, pinnedModel: 'ds/deepseek-chat' }, 'transcribe');
+      assert.deepEqual(t.refs, ['glm/glm-4-plus']);
+      assert.equal(t.inherited, true);
+    });
+
+    test('缺省归快速档', () => {
+      assert.equal(tiersMod.DEFAULT_TASK_TIERS.transcribe, 'fast');
+    });
+  });
+
   describe('内置默认表自身的完备性', () => {
     // 内置默认必须给每个任务都指定一档，否则 refsForTask 会取到 undefined。
     test('每个任务都有内置默认档位', () => {

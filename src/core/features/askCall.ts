@@ -36,12 +36,16 @@ export async function askCall(ask: CallAsk): Promise<CallAnswer | undefined> {
   const config = readConfig();
   // 「按分档」那几行说的是不钉模型时谁干活：外面那一次钉了模型也照分档说。
   const tiered = { ...config, pinnedModel: undefined };
+  // 转写不跟这一次挑的模型走（model/tiers.ts），单列一行、一直显示。
+  const tasks = [...new Set(ask.tasks)];
+  const fixed = tasks.filter((task) => task === 'transcribe').map((task) => `${describeTaskModels(tiered, task)}（不跟这一次挑的模型）`);
   const answer = await host.confirmCall(ask.message, ask.actions, {
     detail: ask.detail,
     call: {
       models: listModelChoices(config.providers, host.supportsVscodeLm).map(({ ref, label, group }) => ({ ref, label, group })),
       model: ask.preset ? (ask.preset.model ?? '') : (config.pinnedModel ?? ''),
-      tiers: [...new Set(ask.tasks)].map((task) => describeTaskModels(tiered, task)),
+      tiers: tasks.filter((task) => task !== 'transcribe').map((task) => describeTaskModels(tiered, task)),
+      ...(fixed.length > 0 ? { fixed } : {}),
       ...(ask.contextDetail ? { contextDetail: ask.preset?.contextDetail ?? config.contextDetail } : {}),
     },
   });

@@ -9,7 +9,8 @@
  * | 角色图谱 | 身份清单 → 按冻结清单每批 3 人补详情；截断拆半 | `GenerateCharactersCommand`（AC:1254-1647） |
  * | 设定清单 | 分类目录树 + 清单 → 按冻结清单每批 6 条补正文；截断拆半；调用次数封顶 | 本项目（设定名录） |
  * | 展开一条设定 | 1 次；语法坏了修一次；截断、解析不了都不给写入 | 本项目（完善设定） |
- * | 细纲批次 | 截断或解不出来：多章对半拆、单章紧凑重建；语法坏了修一次；漏章 fail-closed | `structured-batch-executor.ts` |
+ * | 细纲批次 | 写（自然语言）→ 转写成 JSON；截断或转写不出来：多章对半拆、单章紧凑重建；全程重转一次；漏章 fail-closed | `structured-batch-executor.ts` |
+ * | 单章细纲 | 写（自然语言）→ 转写成 JSON；重转一次；还不行按小节读原文 | 本项目（细纲试点） |
  *
  * ## 单步与批量共用
  *
@@ -30,11 +31,13 @@
  * 逐份过目，漏一章就会让流水线从此撒谎。
  */
 import type { ChatMessage, StopSignal } from '../llm/provider';
+import { CancelledError } from '../llm/provider';
+import { describeError } from '../runtime/logger';
 import type { BuildRequest, DraftPlotLine } from '../context/types';
 import {
   RESTART_AFTER_INVALID,
   RESTART_AFTER_TRUNCATION,
-  blueprintJsonContract,
+  blueprintTranscribeMessages,
   guidanceRetryMessages,
   loreDetailJsonContract,
   rosterDetailJsonContract,
@@ -47,6 +50,7 @@ import { BookConfig } from '../model/settingFile';
 import { hasContent } from '../model/markdown';
 import { outlineRangeHeadings, parseOutline } from '../model/outlineFile';
 import { BlueprintItem, blueprintToPlot, checkCoverage, decodeBlueprints, renderBlueprints } from '../features/blueprint';
+import { parsePlotStrict } from '../features/artifact';
 import { CharacterDetail, IdentitySlot, assembleRoster, decodeDetails, decodeManifest, renderRoster } from '../features/roster';
 import {
   LoreDetail,
@@ -66,7 +70,14 @@ import {
 } from '../features/novelConfig';
 import { LoreExpandKnown, decodeLoreExpansion, renderLoreExpansion } from '../features/loreExpand';
 import { LoreSettleKnown, decodeLoreSettle, renderLoreSettle, renderNothingSettled } from '../features/loreSettle';
-import { isRepairableJsonSyntax, preservesJsonEvidence } from '../features/structuredJson';
+import {
+  isRepairableJsonSyntax,
+  jsonValueOf,
+  preservesJsonEvidence,
+  unfaithfulStrings,
+  withoutNone,
+} from '../features/structuredJson';
+import { cnNumber } from '../model/timelineFile';
 
 /** 一次调用的结果。`stop` 缺席 = 网关没报收尾原因（有的兼容实现压根不发）。 */
 export interface CallOutcome {
@@ -78,6 +89,12 @@ export interface CallOutcome {
 export interface ChainIO {
   /** 调一次模型。`label` 写进气泡与日志，说清这一次在补什么。 */
   call(messages: ChatMessage[], label: string, opts?: CallOptions): Promise<CallOutcome>;
+  /**
+   * 转写一次（2026-10-25 细纲试点）：把写好的原文照抄成 JSON 的那个模型——「转写」那一档（model/tiers.ts），不跟
+   * 对话页选的、也不跟确认框上为这一次挑的模型。不流进气泡，只加一行「——label——」：JSON 在链结束时整份换上去。
+   * 没实现的（测试里的假 IO）退回 `call`。
+   */
+  transcribe?(messages: ChatMessage[], label: string): Promise<CallOutcome>;
   /** 按改过的请求重新装配：同一个装配器、同一份预算，只换这几个字段。 */
   build(patch: Partial<BuildRequest>): Promise<ChatMessage[]>;
   /** 第一次调用的消息。字段级重写要借它的系统提示。 */
@@ -141,7 +158,15 @@ export class Tally {
     this.calls++;
     return io.call(messages, label, opts);
   }
+  /** 转写一次（{@link ChainIO.transcribe}）。也算一次调用（第 4 条）。 */
+  async transcribe(io: ChainIO, messages: ChatMessage[], label: string): Promise<CallOutcome> {
+    this.calls++;
+    return io.transcribe ? io.transcribe(messages, label) : io.call(messages, label, { quiet: true, temperature: TRANSCRIBE_TEMPERATURE });
+  }
 }
+
+/** 转写的温度：照抄，不要发挥。 */
+export const TRANSCRIBE_TEMPERATURE = 0;
 
 function span(from: number, to: number): string {
   return from === to ? `第 ${from} 章` : `第 ${from}–${to} 章`;
@@ -509,17 +534,18 @@ function draftLine(b: BlueprintItem): DraftPlotLine {
 }
 
 /**
- * 细纲批次：`chapters` 按 {@link PLOT_BATCH} 一批，每批走上游 SBE 的降级链。
+ * 细纲批次：`chapters` 按 {@link PLOT_BATCH} 一批，每批走上游 SBE 的降级链，中间多一步转写（2026-10-25 细纲试点）。
  *
  * `first` 是对话页已经流式跑完的第一批（它的范围必须正好是 `chapters` 的前 5 章）；
  * 批量那条路不给，第一批也由链自己调。
  *
+ * - 写细纲的模型按小标题写自然语言（context/prompts.ts 的 `blueprintFormat`），转写模型照抄成 JSON
+ *   （{@link transcribeBlueprints}）。模型自己给了合格的 JSON 就不转。
  * - 截断：多章对半拆；单章紧凑重建（每章至多一次）。
- * - JSON 语法坏了：全程只修一次，只许改标点（`preservesJsonEvidence`），改了内容就拒收。
- * - 解不出来：多章对半拆，单章紧凑重建。
+ * - 转写不合格：全程只重转一次；还不合格，多章对半拆、单章紧凑重建（同截断）。
  * - 重复章、越界章：报错。
- * - **漏章**：只有修过语法（说明是截断把后面的章吞了）才拆半或重建；模型正常收尾却
- *   漏写了，就报错、整批不写——对偷懒的输出不无限重试（上游同一条规矩）。
+ * - **漏章**：原文里压根没写这一章（连「第 N 章」都没有）——模型偷懒，报错、整批不写，对偷懒的输出不无限重试
+ *   （上游同一条规矩）；原文写了、转写漏了，算转写不合格。
  */
 export async function completeBlueprints(
   first: CallOutcome | undefined,
@@ -530,7 +556,7 @@ export async function completeBlueprints(
   const t: Tally = new Tally(!!first);
   const validated: BlueprintItem[] = [];
   const compacted = new Set<number>();
-  let repairUsed = false;
+  const retry = { used: false };
 
   const exec = async (items: number[], compact?: { diagnostic?: string }, preset?: CallOutcome): Promise<void> => {
     const from = items[0];
@@ -573,58 +599,27 @@ export async function completeBlueprints(
       t.fail(`${where}的细纲单章重建仍被输出上限截断。调大设置页的「最大输出 token」，或降低思考深度再试。`);
     }
 
-    let text = out.text;
-    let repaired = false;
-    if (isRepairableJsonSyntax(text) && !repairUsed) {
-      repairUsed = true;
-      repaired = true;
-      const fix = await t.call(io, syntaxRepairMessages(blueprintJsonContract({ from, to }), text), `${where}的 JSON 语法坏了，修一次`);
-      if (fix.stop === 'maxTokens') {
-        if (!single) {
-          return split('语法修复时被输出上限截断');
-        }
-        if (canCompact) {
-          return rebuild('语法修复时被输出上限截断');
-        }
-        t.fail(`${where}的细纲语法修复被输出上限截断。`);
+    const v = await transcribeBlueprints(t, io, out.text, items, retry);
+    if (!v.ok) {
+      if (v.kind === 'absent') {
+        t.fail(`模型漏写了第 ${v.chapters.join('、')} 章。漏章时不猜也不补，这一批没有写入任何细纲。`);
       }
-      if (!preservesJsonEvidence(text, fix.text)) {
-        t.fail(`${where}的语法修复改动了细纲的内容，已拒收——修复只许改标点，不许补造或改写事实。`);
+      if (v.kind === 'duplicate') {
+        t.fail(`输出里第 ${v.chapters.join('、')} 章出现了不止一次，说不清哪一份算数。这一批没有写入任何细纲。`);
       }
-      text = fix.text;
-      t.note(`${where}的 JSON 语法坏了，修了一次（只改标点）`);
-    }
-
-    const decoded = decodeBlueprints(text);
-    if (!decoded.ok) {
-      const d = decoded.diagnostic;
+      if (v.kind === 'unexpected') {
+        t.fail(`输出里多出了这一批以外的第 ${v.chapters.join('、')} 章。这一批没有写入任何细纲。`);
+      }
       if (!single) {
-        return split(`解不出来（${d.message}）`);
+        return split(`解不出来（${v.message}）`);
       }
       if (canCompact) {
-        return rebuild(`解不出来（${d.message}）`, `${d.path}：${d.message}`);
+        return rebuild(`解不出来（${v.message}）`, v.diagnostic);
       }
-      t.fail(`${where}的细纲不合格：${d.message}。这一批没有写入任何细纲。`);
+      t.fail(`${where}的细纲不合格：${v.message}。这一批没有写入任何细纲。`);
     }
-
-    const cov = checkCoverage(decoded.items, items);
-    if (cov.duplicate.length > 0) {
-      t.fail(`输出里第 ${cov.duplicate.join('、')} 章出现了不止一次，说不清哪一份算数。这一批没有写入任何细纲。`);
-    }
-    if (cov.unexpected.length > 0) {
-      t.fail(`输出里多出了这一批以外的第 ${cov.unexpected.join('、')} 章。这一批没有写入任何细纲。`);
-    }
-    if (cov.missing.length > 0) {
-      if (repaired && !single) {
-        return split(`修过语法后仍缺第 ${cov.missing.join('、')} 章`);
-      }
-      if (repaired && canCompact) {
-        return rebuild('修过语法后仍缺这一章');
-      }
-      t.fail(`模型漏写了第 ${cov.missing.join('、')} 章。漏章时不猜也不补，这一批没有写入任何细纲。`);
-    }
-    t.note(...decoded.warnings);
-    validated.push(...items.map((no) => decoded.items.find((b) => b.no === no)!));
+    t.note(...v.warnings);
+    validated.push(...items.map((no) => v.items.find((b) => b.no === no)!));
   };
 
   for (let i = 0; i < chapters.length; i += PLOT_BATCH) {
@@ -634,10 +629,204 @@ export async function completeBlueprints(
   return { raw: renderBlueprints(validated), notes: t.notes, calls: t.calls, items: validated };
 }
 
+// ---------------------------------------------------------------- 细纲的转写
+
+/**
+ * 转写时不比原文的键：按对应关系填的（章号、推进/埋、主角/反派、男/女、新不新、第几章前收），以及分类——
+ * 原文没写分类时转写模型照名字补一个，是归类不是改写。其余每一段文字都得出自原文。
+ */
+const TRANSCRIBE_MAPPED: ReadonlySet<string> = new Set(['chapterNumber', 'type', 'role', 'gender', 'isNew', 'resolve', 'category']);
+
+/** 合同字段 → 原文里的小标题。紧凑重建时告诉写细纲的模型缺的是哪一节（它写的是小标题，不认 JSON 路径）。 */
+const FIELD_SECTION: Record<string, string> = {
+  title: '标题',
+  synopsis: '梗概',
+  characters: '出场人物',
+  keyEvents: '关键事件',
+};
+
+type BlueprintVerdict =
+  | { ok: true; items: BlueprintItem[]; warnings: string[] }
+  | {
+      ok: false;
+      /** absent：原文就没写这几章；duplicate / unexpected：同号不止一份、多出了这一批以外的；其余是转写不合格。 */
+      kind: 'absent' | 'duplicate' | 'unexpected' | 'invalid';
+      message: string;
+      chapters: number[];
+      /** 紧凑重建时给写细纲的模型的那一句。 */
+      diagnostic?: string;
+    };
+
+/** 原文里有没有提到第 N 章（「第 3 章」「第三章」都算）。 */
+function mentionsChapter(source: string, no: number): boolean {
+  return new RegExp(`第\\s*(?:${no}|${cnNumber(no)})\\s*章`).test(source);
+}
+
+/** 原文里有没有细纲的样子：小标题（梗概、关键事件），或者是一段坏了语法的 JSON（转写顺带把它理顺）。 */
+function looksLikePlot(source: string): boolean {
+  return /梗概|关键事件|synopsis|keyEvents/.test(source);
+}
+
+const NOT_A_PLOT = '没有按格式写（认不出「梗概」「关键事件」这些小标题）';
+
+/**
+ * 一份 JSON（转写的输出，或模型自己给的）按这一批的合同判：解得开、章对得上、每段文字出自原文。模型自己给的 JSON
+ * （`text` 就是原文）不比原文——拿自己比自己。
+ */
+function judgeBlueprints(text: string, source: string, items: readonly number[]): BlueprintVerdict {
+  const value = jsonValueOf(text);
+  const decoded = decodeBlueprints(value === undefined ? text : JSON.stringify(withoutNone(value)));
+  if (!decoded.ok) {
+    const d = decoded.diagnostic;
+    const section = FIELD_SECTION[d.path.split('.').pop() ?? ''];
+    return {
+      ok: false,
+      kind: 'invalid',
+      message: d.message,
+      chapters: [],
+      ...(section ? { diagnostic: `「${section}」那一节缺了或是空的` } : {}),
+    };
+  }
+  const cov = checkCoverage(decoded.items, items);
+  if (cov.duplicate.length > 0) {
+    return { ok: false, kind: 'duplicate', message: `第 ${cov.duplicate.join('、')} 章出现了不止一次`, chapters: cov.duplicate };
+  }
+  if (cov.unexpected.length > 0) {
+    return { ok: false, kind: 'unexpected', message: `多出了第 ${cov.unexpected.join('、')} 章`, chapters: cov.unexpected };
+  }
+  if (cov.missing.length > 0) {
+    // 单章时原文不写章号也是这一章（转写合同里给了章号），漏了只能是转写的事。
+    const absent = items.length > 1 ? cov.missing.filter((no) => !mentionsChapter(source, no)) : [];
+    return absent.length > 0
+      ? { ok: false, kind: 'absent', message: `原文没写第 ${absent.join('、')} 章`, chapters: absent }
+      : { ok: false, kind: 'invalid', message: `缺第 ${cov.missing.join('、')} 章`, chapters: cov.missing };
+  }
+  const off = text === source ? [] : unfaithfulStrings(source, value, TRANSCRIBE_MAPPED);
+  if (off.length > 0) {
+    return { ok: false, kind: 'invalid', message: `这几处不是原文里的字：${off.map((s) => `「${s}」`).join('、')}`, chapters: [] };
+  }
+  return { ok: true, items: decoded.items, warnings: decoded.warnings };
+}
+
+/**
+ * 一批细纲的原文 → 解出来的这几章（2026-10-25 细纲试点）。
+ *
+ * - 原文本身就是合格的 JSON（模型没照格式写、老会话）：不转，直接按合同判。
+ * - 原文连细纲的样子都没有（{@link looksLikePlot}）：不转，按解不出来交回去——转写搬不出原文没有的东西。
+ * - 否则交给转写模型（{@link ChainIO.transcribe}）。转写不合格——截断、解不开、漏了原文写了的章、改了原文的字——
+ *   重转一次，说清上次哪里不对；**全程只重转一次**（`retry`，同从前的语法修复）。原文就没写的章（偷懒）不重转。
+ */
+async function transcribeBlueprints(
+  t: Tally,
+  io: ChainIO,
+  source: string,
+  items: readonly number[],
+  retry: { used: boolean }
+): Promise<BlueprintVerdict> {
+  if (jsonValueOf(source) !== undefined) {
+    return judgeBlueprints(source, source, items);
+  }
+  // 连「梗概」「关键事件」都没有的（「我不太确定这几章写什么」）不是细纲，转写也搬不出东西，不花这一次。
+  if (!looksLikePlot(source)) {
+    return { ok: false, kind: 'invalid', message: NOT_A_PLOT, chapters: [], diagnostic: NOT_A_PLOT };
+  }
+  const range = { from: items[0], to: items[items.length - 1] };
+  const where = span(range.from, range.to);
+  let feedback: string | undefined;
+  for (;;) {
+    const out = await tryTranscribe(t, io, blueprintTranscribeMessages(source, range, feedback), `${where}转写成 JSON`);
+    if ('failed' in out) {
+      // ChainError：写好的原文留在气泡里（generation/generate.ts），作者拿得走。
+      t.fail(`${where}的转写调用失败（${out.failed}）。这一批没有写入任何细纲。`);
+    }
+    const v: BlueprintVerdict =
+      out.stop === 'maxTokens'
+        ? { ok: false, kind: 'invalid', message: '转写被输出上限截断', chapters: [] }
+        : judgeBlueprints(out.text, source, items);
+    if (v.ok || v.kind === 'absent' || retry.used) {
+      return v;
+    }
+    retry.used = true;
+    feedback = v.message;
+    t.note(`${where}转写不合格（${v.message}），重转一次`);
+  }
+}
+
+/**
+ * 单章细纲（写第 N 章细纲、落定细纲）：写细纲的模型按小标题写了一章（第一次调用，对话页已经流式跑完），转写模型照抄成
+ * JSON（2026-10-25 细纲试点）。气泡最后换成规范化 JSON（`{"blueprints":[…]}`，`features/artifact.ts` 的 `parsePlotStrict` 认它）。
+ *
+ * 比批次宽松，同从前的单章：这件产物作者当场过目。截断只说一句、照样转；转写不合格重转一次，还不合格就把原文交回去，
+ * 解析那一层按小节读（梗概、关键事件……那七节读得出来，叙事线的计划、新角色与「设定」一节读不出来），说明里写清。
+ * 模型自己给了 JSON 就不转，原样交回去（同从前）。
+ */
+export async function completePlot(first: CallOutcome, io: ChainIO, no: number | undefined): Promise<ChainResult> {
+  const t: Tally = new Tally(true);
+  if (first.stop === 'maxTokens') {
+    t.note('输出被输出上限截断，后半段可能缺失。调大设置页的「最大输出 token」再生成一次更稳。');
+  }
+  const source = first.text.trim();
+  if (jsonValueOf(source) !== undefined) {
+    return { raw: source, notes: t.notes, calls: t.calls };
+  }
+  if (!looksLikePlot(source)) {
+    t.note(`${NOT_A_PLOT}，没有转写`);
+    return { raw: source, notes: t.notes, calls: t.calls };
+  }
+  const range = no !== undefined ? { from: no, to: no } : undefined;
+  let feedback: string | undefined;
+  for (let round = 0; round < 2; round++) {
+    const out = await tryTranscribe(t, io, blueprintTranscribeMessages(source, range, feedback), '转写成 JSON');
+    if ('failed' in out) {
+      t.note(`转写调用失败（${out.failed}）`);
+      break;
+    }
+    const problem = plotTranscriptProblem(out, source);
+    if (!problem) {
+      return { raw: JSON.stringify(withoutNone(jsonValueOf(out.text)), null, 2), notes: t.notes, calls: t.calls };
+    }
+    feedback = problem;
+    t.note(round === 0 ? `转写不合格（${problem}），重转一次` : `重转仍不合格（${problem}）`);
+  }
+  t.note('转写没成，按小节读了原文：叙事线的计划、新角色与「设定」一节没带上，要它们就重新生成一次');
+  return { raw: source, notes: t.notes, calls: t.calls };
+}
+
+/**
+ * 转写一次。调用本身失败（池里同档换完了人、网关报错）不往外抛，交回原因——写好的原文不能跟着丢：批次报 `ChainError`、
+ * 原文留在气泡里，单章按小节读。作者点了停止照旧往外抛。
+ */
+async function tryTranscribe(t: Tally, io: ChainIO, messages: ChatMessage[], label: string): Promise<CallOutcome | { failed: string }> {
+  try {
+    return await t.transcribe(io, messages, label);
+  } catch (err) {
+    if (err instanceof CancelledError) {
+      throw err;
+    }
+    return { failed: describeError(err) };
+  }
+}
+
+/** 单章的转写哪里不合格；合格返回 undefined。只查解不解得开、有没有内容、文字是不是出自原文——形状宽松，同单章的解析。 */
+function plotTranscriptProblem(out: CallOutcome, source: string): string | undefined {
+  if (out.stop === 'maxTokens') {
+    return '转写被输出上限截断';
+  }
+  const value = jsonValueOf(out.text);
+  if (value === undefined) {
+    return '转写出来的不是一个完整的 JSON 对象';
+  }
+  const off = unfaithfulStrings(source, value, TRANSCRIBE_MAPPED);
+  if (off.length > 0) {
+    return `这几处不是原文里的字：${off.map((s) => `「${s}」`).join('、')}`;
+  }
+  return parsePlotStrict(JSON.stringify(withoutNone(value))) ? undefined : '转写出来是空的';
+}
+
 // ---------------------------------------------------------------- 单次产物的说明
 
 /**
- * 不走链的产物（前提、世界观、大纲、单章细纲）也要把看得见的问题说出来：
+ * 不走链的产物（前提、世界观、大纲）也要把看得见的问题说出来：
  * 输出被截断、续写的那一段大纲没覆盖到本批的最后一章。
  */
 export function singleShotNotes(
@@ -691,6 +880,7 @@ export type ChainKind =
   | 'loreExpand'
   | 'loreSettle'
   | 'blueprints'
+  | 'plot'
   | 'manuscript'
   | 'review'
   | 'revision';
@@ -722,6 +912,10 @@ export function chainOf(request: Pick<BuildRequest, 'action' | 'target' | 'range
   }
   if (stage === 'plot' && capability === 'generate' && request.range) {
     return 'blueprints';
+  }
+  // 单章细纲（写第 N 章细纲、落定细纲）：写完转写一次（2026-10-25 细纲试点）。
+  if (stage === 'plot' && (capability === 'generate' || capability === 'settle')) {
+    return 'plot';
   }
   return undefined;
 }

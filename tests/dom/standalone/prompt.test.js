@@ -135,6 +135,17 @@ describe('调模型之前的那一问（confirm 带 call）', { skip: JSDOM_SKIP
     assert.equal(JSON.stringify(m.choice), JSON.stringify({ model: 'or/claude', contextDetail: 1 }));
   });
 
+  // 细纲试点（2026-10-25）：转写不跟这一次挑的模型，那一行挑了模型也照样显示。
+  test('不跟这一次挑的模型的活（转写）：挑了模型也照样显示', () => {
+    open({ requestId: 'k4', call: { ...CALL, fixed: ['转写 · 细纲整理成 JSON → 快速档：glm/glm-4-air（不跟这一次挑的模型）'] } });
+    const [model] = selects();
+    choose(model, 'or/claude');
+    assert.ok(tiers().classList.contains('hidden'));
+    const fixed = [...modal().querySelectorAll('.call-picker > p.hint')].find((p) => p.textContent.includes('转写'));
+    assert.ok(fixed && !fixed.classList.contains('hidden'), modal().querySelector('.call-picker').innerHTML);
+    ui.clickEl(ui.doc.getElementById('providerModalClose'));
+  });
+
   test('这一次不看详细度：只有模型那一个下拉框', () => {
     open({ requestId: 'k2', call: { ...CALL, contextDetail: undefined } });
     assert.equal(selects().length, 1);

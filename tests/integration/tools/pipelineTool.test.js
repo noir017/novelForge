@@ -36,10 +36,10 @@ const PLOT1 = '.novelforge/summaries/001-夜入青云.md';
 const CH1 = 'chapters/001-夜入青云.txt';
 const CH2 = 'chapters/002-藏书阁.txt';
 
-/** 细纲层的应答：按契约里写的区间给一批蓝图（「chapterNumber 必须覆盖第 1–2 章的每一章」）。 */
+/** 细纲层的应答：按契约里写的区间给一批蓝图（「写第 1–2 章的细纲：」）。 */
 function plotReply(messages) {
   const user = messages[messages.length - 1].content;
-  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const m = /写第 (\d+)(?:–(\d+))? 章的细纲：/.exec(user);
   const from = Number(m?.[1] ?? 1);
   const to = Number(m?.[2] ?? from);
   const blueprints = [];

@@ -62,7 +62,7 @@ export class VsCodeHost implements Host {
       ...(call.contextDetail ? { contextDetail: call.contextDetail } : {}),
     };
     for (;;) {
-      const detail = [opts.detail, choice.model ? '' : call.tiers.join('\n'), `这一次：${describeCallChoice(choice)}`]
+      const detail = [opts.detail, choice.model ? '' : call.tiers.join('\n'), (call.fixed ?? []).join('\n'), `这一次：${describeCallChoice(choice)}`]
         .filter(Boolean)
         .join('\n\n');
       const picked = await vscode.window.showInformationMessage(

@@ -104,7 +104,7 @@ describe('拆细纲弹窗的「拆完展开本批新设定」', { skip: JSDOM_SK
     choose(ui, 'expandLore', 'on');
     assert.ok(note(ui).includes('拆完展开本批新设定：每条 1 次，有几条要拆完才知道，到时再报次数、再问一次'), note(ui));
     // 拆细纲那一段的次数不变（展开那几次不在这里的数里）。
-    assert.ok(note(ui).includes('预计 1 次调用，最多 12 次'), note(ui));
+    assert.ok(note(ui).includes('预计 2 次调用，最多 23 次'), note(ui));
     ui.sent.length = 0;
     ui.clickEl(submitBtn(ui));
     const msg = ui.last('projectAction');

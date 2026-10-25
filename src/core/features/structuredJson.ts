@@ -232,3 +232,76 @@ export function preservesJsonEvidence(candidate: string, repaired: string): bool
   const repairedHead = beforeClosingTail(b.tokens);
   return head.length === repairedHead.length && head.every((token, i) => token === repairedHead[i]);
 }
+
+// ---------------------------------------------------------------- 转写（2026-10-25 细纲试点）
+
+/** 整段是 JSON 就取它，否则取「唯一一个完整对象」（{@link singleJsonObject}）；都不是返回 undefined。 */
+export function jsonValueOf(content: string): unknown {
+  const whole = parseJson(content);
+  if (whole !== undefined) {
+    return whole;
+  }
+  const single = singleJsonObject(content);
+  return single.ok ? single.value : undefined;
+}
+
+/** 原文里「哪一节没有内容就写『无』」，转写模型偶尔照抄成 `"无"`：文字换成空的，列表里的去掉。 */
+const NONE = /^[（(]?\s*无\s*[)）]?[。.]?$/u;
+
+export function withoutNone(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return NONE.test(value.trim()) ? '' : value;
+  }
+  if (Array.isArray(value)) {
+    return value.filter((x) => !(typeof x === 'string' && NONE.test(x.trim()))).map(withoutNone);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withoutNone(v)]));
+  }
+  return value;
+}
+
+/** 比对用的样子：去掉空白、标点与符号。 */
+function bare(s: string): string {
+  return s.replace(/[\s\p{P}\p{S}]/gu, '');
+}
+
+/** 原文是一段坏了语法的 JSON 时，里面的 `\n`、`\"`、`一` 还是转义的样子；还原了再比，不然多出一个 `n`。 */
+function unescapeJson(s: string): string {
+  return s
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\[nrtbf]/g, ' ')
+    .replace(/\\(["\\/])/g, '$1');
+}
+
+/**
+ * 转写有没有照抄：JSON 里每一段文字都得在原文里找得到，交回找不到的那几段（最多 `limit` 段，截到 30 字，给说明与
+ * 重转那一次用）。
+ *
+ * 比对之前两边都去掉空白、标点与符号：去掉行首的「-」、把两行并成一条、拆成两条、换个引号都不算改；改了一个字、
+ * 补了原文没有的一句就找不到。`skip` 里那几个键的值是按对应关系填的（章号、推进 / 埋、主角 / 反派……），不比；
+ * 数组里的文字跟着数组所在的键。
+ */
+export function unfaithfulStrings(source: string, value: unknown, skip: ReadonlySet<string>, limit = 3): string[] {
+  const hay = bare(unescapeJson(source));
+  const off: string[] = [];
+  const walk = (v: unknown, key: string | undefined): void => {
+    if (off.length >= limit || (key !== undefined && skip.has(key))) {
+      return;
+    }
+    if (typeof v === 'string') {
+      const needle = bare(v);
+      if (needle && !hay.includes(needle)) {
+        off.push(Array.from(v.trim()).length > 30 ? `${Array.from(v.trim()).slice(0, 30).join('')}…` : v.trim());
+      }
+    } else if (Array.isArray(v)) {
+      v.forEach((x) => walk(x, key));
+    } else if (v && typeof v === 'object') {
+      for (const [k, x] of Object.entries(v)) {
+        walk(x, k);
+      }
+    }
+  };
+  walk(value, undefined);
+  return off;
+}

@@ -52,8 +52,10 @@ export function buildCallPicker(call: CallPrompt): { element: HTMLElement; choic
   for (const line of call.tiers) {
     tiers.appendChild(mk('p', 'hint', line));
   }
+  // 不跟这一次挑的模型走的活（转写）：选了具体模型也照样显示。
+  const fixed = (call.fixed ?? []).map((line) => mk('p', 'hint', line));
   const hint = mk('p', 'hint call-detail-hint');
-  box.append(tiers, ...(detail ? [hint] : []));
+  box.append(tiers, ...fixed, ...(detail ? [hint] : []));
 
   const refresh = () => {
     setHidden(tiers, model.value !== '');

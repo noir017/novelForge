@@ -18,6 +18,9 @@
  *    之前逐字节一致——静默把某些任务降级到便宜模型，等于替作者做了质量取舍。
  * 2. **对话页续写不在此列**。它严格用作者在下拉框里选定的那个模型（`models[0]`），
  *    中途换人会让文风断掉。这里的档位只作用于工程页的后台任务。
+ *
+ * 唯一的例外是**转写**（`transcribe`，2026-10-25 细纲试点）：大模型按小标题写好细纲之后，由它把原文搬成 JSON。
+ * 它不写内容，对话页与工程页都走它这一档，作者在确认框上为这一次指定的模型也不管它（作者定的：固定的转写模型）。
  */
 
 /** 三档智能水平。顺序即由省到贵。 */
@@ -59,7 +62,8 @@ export type LlmTask =
   | 'loreSynthesis'
   | 'characterCard'
   | 'extractCharacters'
-  | 'extractStyle';
+  | 'extractStyle'
+  | 'transcribe';
 
 export const LLM_TASKS: LlmTask[] = [
   'plotSummary',
@@ -74,6 +78,7 @@ export const LLM_TASKS: LlmTask[] = [
   'characterCard',
   'extractCharacters',
   'extractStyle',
+  'transcribe',
 ];
 
 /** 任务的中文名。确认框与日志里出现的就是它。 */
@@ -90,6 +95,7 @@ export const TASK_LABEL: Record<LlmTask, string> = {
   characterCard: '角色卡 · 更新 / 建卡',
   extractCharacters: '提取角色',
   extractStyle: '提取文风',
+  transcribe: '转写 · 细纲整理成 JSON',
 };
 
 /** 设置页那张表里每行的补充说明：这活为什么归在这一档。 */
@@ -106,6 +112,8 @@ export const TASK_HINT: Record<LlmTask, string> = {
   characterCard: '按出场章分批精炼，产物每次续写都注入上下文',
   extractCharacters: '一次调用定「谁是谁」，判错会污染整个角色体系',
   extractStyle: '一次调用，产出的文风指南每次续写都注入',
+  transcribe:
+    '写细纲的模型按小标题写自然语言，写完由这一档照抄成 JSON：只搬不写，每段文字都得出自原文。对话页与工程页都用它，确认框上为这一次换的模型不管它',
 };
 
 /**
@@ -136,6 +144,7 @@ export const DEFAULT_TASK_TIERS: Record<LlmTask, ModelTier> = {
   globalSummaryMerge: 'quality',
   extractCharacters: 'quality',
   extractStyle: 'quality',
+  transcribe: 'fast',
 };
 
 /** 三档的模型清单，归一化后的完整形状（每档都在，可能是空数组）。 */
@@ -181,11 +190,12 @@ export interface TaskModels {
  * **确认框与日志的文案必须从这里取**，不能再打印 `config.models`——
  * 弹窗写着一个模型、实际跑另一个，是「不偷偷烧 token」这条产品承诺的反面。
  *
- * 作者在确认框上指定了模型（`pinnedModel`）就只给它：选了谁就是谁，与对话页同一条规矩。
+ * 作者在确认框上指定了模型（`pinnedModel`）就只给它：选了谁就是谁，与对话页同一条规矩。转写（`transcribe`）除外，
+ * 它固定按档走（见文件头）。
  */
 export function refsForTask(config: TierConfig, task: LlmTask): TaskModels {
   const tier = tierOf(config, task);
-  if (config.pinnedModel) {
+  if (config.pinnedModel && task !== 'transcribe') {
     return { tier, refs: [config.pinnedModel], inherited: false, pinned: true };
   }
   const refs = config.tierModels[tier] ?? [];

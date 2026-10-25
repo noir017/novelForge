@@ -156,7 +156,7 @@ function reply(messages) {
   if (user.includes('「故事前提」')) return PREMISE;
   if (user.includes('「世界观」')) return WORLD;
   if (user.includes('整合为全书的情节大纲')) return OUTLINE;
-  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const m = /写第 (\d+)(?:–(\d+))? 章的细纲：/.exec(user);
   if (m) {
     const from = Number(m[1]);
     const to = Number(m[2] ?? m[1]);

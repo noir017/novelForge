@@ -184,7 +184,7 @@ export function openPlotBatchForm(tree: ProjectTree): void {
         text:
           `要拆 ${plan.chapters.length} 章，分 ${plan.batches.length} 批（每批最多 ${PLOT_BATCH} 章）` +
           `${plan.skipped.length > 0 ? `，跳过已有细纲的 ${plan.skipped.length} 章` : ''}。` +
-          `${describeCalls(plan.calls)}（输出被截断或格式不对时自动拆小重试）。` +
+          `${describeCalls(plan.calls)}（每批写 1 次、转写模型照抄成 JSON 1 次；被截断或转写不成时自动拆小重试）。` +
           (planThreads ? '还没有叙事线：开拆之前先从情节大纲排一次（算在里面）。' : '') +
           (v.expandLore === 'on'
             ? '拆完展开本批新设定：每条 1 次，有几条要拆完才知道，到时再报次数、再问一次；不在这里的数里。'

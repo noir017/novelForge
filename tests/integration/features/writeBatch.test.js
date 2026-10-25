@@ -454,7 +454,7 @@ const OUTLINE = outlineOf(10, { text: { 1: '林昭回镇查案。' } });
 /** 按契约里写的区间应答一批细纲（新合同：七节里除连续性事实之外的字段）。 */
 function blueprintsFor(messages) {
   const user = messages[messages.length - 1].content;
-  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const m = /写第 (\d+)(?:–(\d+))? 章的细纲：/.exec(user);
   const from = Number(m?.[1] ?? 1);
   const to = Number(m?.[2] ?? from);
   const blueprints = [];
@@ -473,7 +473,7 @@ function blueprintsFor(messages) {
   }
   return JSON.stringify({ blueprints });
 }
-const isBlueprint = (messages) => /chapterNumber 必须覆盖第/.test(messages[messages.length - 1].content);
+const isBlueprint = (messages) => /写第 \d+(?:–\d+)? 章的细纲：/.test(messages[messages.length - 1].content);
 const isPlotCheck = (messages) => (messages[0]?.content ?? '').includes('你是长篇小说的连续性编辑');
 const isEvents = isFind;
 const isThreads = (messages) => (messages[0]?.content ?? '').includes('只从作者给的小说配置、故事前提、角色图谱与情节大纲里排出这本书的叙事线');

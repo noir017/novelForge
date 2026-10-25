@@ -38,10 +38,10 @@ const bp = (no, over = {}) => ({
   stateChange: '',
   ...over,
 });
-/** 按契约里写的区间应答：「chapterNumber 必须覆盖第 3–5 章的每一章」。 */
+/** 按契约里写的区间应答：「写第 3–5 章的细纲：」。 */
 function blueprintsFor(messages, over = {}) {
   const user = messages[messages.length - 1].content;
-  const m = /chapterNumber 必须覆盖第 (\d+)(?:–(\d+))? 章的每一章/.exec(user);
+  const m = /写第 (\d+)(?:–(\d+))? 章的细纲：/.exec(user);
   const from = Number(m?.[1] ?? 1);
   const to = Number(m?.[2] ?? from);
   const items = [];
@@ -245,7 +245,13 @@ describe('批量拆细纲', () => {
 
   // 第 4 条：动手前说清要调几次模型——有自动修复，所以报预计与上限。
   test('确认框里写明批数与调用次数', () => {
-    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 2 次调用，最多 6 次'), JSON.stringify(confirm));
+    assert.ok(confirm?.message.includes('要拆 2 章细纲，分 2 批，预计 4 次调用，最多 10 次'), JSON.stringify(confirm));
+  });
+
+  // 细纲试点：转写不跟这一次挑的模型，单列一行、一直显示。
+  test('确认框单列转写交给谁', () => {
+    assert.ok(confirm?.call.fixed?.some((x) => x.startsWith('转写 · 细纲整理成 JSON') && x.includes('不跟这一次挑的模型')), JSON.stringify(confirm?.call));
+    assert.ok(!confirm.call.tiers.some((x) => x.startsWith('转写')), JSON.stringify(confirm.call));
   });
 
   test('确认框说清排过的不会被改动', () => {
@@ -338,10 +344,10 @@ describe('批量拆细纲', () => {
     assert.ok(!users[0].includes('# 前文正文'), users[0].slice(0, 200));
   });
 
-  // 契约是蓝图合同：字段对到细纲的七节（连续性事实除外，定稿时才有）。从前那条
-  // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。
-  test('细纲契约是蓝图合同：字段对到细纲的七节', () => {
-    for (const key of ['synopsis', 'characters', 'timePlace', 'keyEvents', 'highlights', 'foreshadowing', 'stateChange']) {
+  // 契约是蓝图合同：小标题对到细纲的七节（连续性事实除外，定稿时才有），外加叙事线。从前那条
+  // 「不写画面台词」的禁令删掉了——关键事件可以写到具体场面。细纲试点起按小标题写，不写 JSON。
+  test('细纲契约是蓝图合同：小标题对到细纲的七节', () => {
+    for (const key of ['梗概', '出场人物', '时间地点', '关键事件', '看点', '叙事线', '状态变更']) {
       assert.ok(users[0].includes(key), `契约里没有 ${key}：${users[0].slice(-600)}`);
     }
   });
@@ -445,7 +451,7 @@ describe('批量拆细纲 · 一条叙事线都没有', () => {
   });
 
   test('确认框把先排的那一次算进去，说清没排成不挡拆细纲', () => {
-    assert.ok(confirm?.message.includes('要拆 1 章细纲，分 1 批，预计 2 次调用，最多 4 次'), confirm?.message);
+    assert.ok(confirm?.message.includes('要拆 1 章细纲，分 1 批，预计 3 次调用，最多 6 次'), confirm?.message);
     assert.ok(confirm.detail.includes('还没有一条叙事线：开拆之前先从情节大纲排一次'), confirm.detail);
   });
 
@@ -466,7 +472,7 @@ describe('批量拆细纲 · 一条叙事线都没有', () => {
     configure();
     h.answers.push('开始拆细纲');
     await bundle.batch.generatePlots(project, { range: { from: 5, to: 5 } });
-    assert.ok(h.confirms[0].message.includes('预计 1 次调用'), h.confirms[0].message);
+    assert.ok(h.confirms[0].message.includes('预计 2 次调用'), h.confirms[0].message);
     assert.ok(!fake.calls.some((c) => c[0].content.includes(PLAN_MARK)));
   });
 

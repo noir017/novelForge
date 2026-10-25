@@ -3,15 +3,20 @@
  * `lore.ts` 的批量展开，批量展开又要用它，放在任何一边都会互相 import。
  */
 import { readConfig } from '../config';
-import { collect } from '../llm/collect';
-import { ModelPool } from '../llm/pool';
+import { CollectResult, collect } from '../llm/collect';
+import { ModelPool, createModelPool } from '../llm/pool';
+import type { ChatMessage } from '../llm/provider';
 import { NovelProject } from '../model/project';
 import { BuildRequest, buildContext } from '../context/builder';
-import { CallOutcome, ChainIO } from '../generation/structured';
+import { CallOutcome, ChainIO, TRANSCRIBE_TEMPERATURE } from '../generation/structured';
+import { scoped } from '../runtime/logger';
+
+const log = scoped('模型池');
 
 /**
  * 批量那条路的 {@link ChainIO}：每次调用走分档池（失败换同档其余，第 12 条），
  * 装配用干活那个模型的窗口（第 13 条：`pool.primaryBudget`），不带思考深度（第 26 条）。
+ * 转写（细纲试点）走「转写」那一档自己的池（{@link lazyTranscriber}）。
  */
 export function poolIO(
   project: NovelProject,
@@ -22,6 +27,7 @@ export function poolIO(
 ): { chain: ChainIO; calls: () => number } {
   let count = 0;
   const budgeted = { ...config, ...pool.primaryBudget };
+  const transcriber = lazyTranscriber();
   const chain: ChainIO = {
     messages: [],
     build: async (patch) => (await buildContext(project, { ...base, ...patch }, budgeted)).messages,
@@ -39,6 +45,44 @@ export function poolIO(
       );
       return { text: r.text, stop: r.stopReason };
     },
+    transcribe: async (messages, label): Promise<CallOutcome> => {
+      count++;
+      const own = await transcriber();
+      if (!own) {
+        log.warn(`${label}：转写那一档没有可用的模型，改用干活那个模型转写`);
+      }
+      const r = await transcribeWith(own ?? pool, messages, label, config.requestTimeoutMs, signal);
+      return { text: r.text, stop: r.stopReason };
+    },
   };
   return { chain, calls: () => count };
+}
+
+/**
+ * 「转写」那一档的池（2026-10-25 细纲试点；model/tiers.ts：不跟确认框上为这一次挑的模型，那一档没配就沿用默认模型），
+ * 第一次用到时才建——只有细纲要转写。建不出来（一个可用的模型都没有）是 undefined，调用方退回干活那个模型并说一声。
+ */
+export function lazyTranscriber(): () => Promise<ModelPool | undefined> {
+  let pool: Promise<ModelPool | undefined> | undefined;
+  return () => (pool ??= createModelPool({ task: 'transcribe', concurrent: false }));
+}
+
+/** 转写一次：照抄，温度 0、不带思考，输出上限用转写模型自己的。失败照池的规矩换同档其余。 */
+export function transcribeWith(
+  pool: ModelPool,
+  messages: ChatMessage[],
+  label: string,
+  timeoutMs: number,
+  signal: AbortSignal
+): Promise<CollectResult> {
+  return pool.run(label, (llm) =>
+    collect(
+      llm.stream(messages, {
+        maxOutputTokens: pool.primaryBudget.maxOutputTokens,
+        temperature: TRANSCRIBE_TEMPERATURE,
+        timeoutMs,
+        signal,
+      })
+    )
+  );
 }

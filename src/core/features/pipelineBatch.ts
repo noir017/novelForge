@@ -159,9 +159,10 @@ export async function generatePlots(
         (plan.skipped.length > 0 ? `已经排过的第 ${plan.skipped.join('、')} 章跳过，不会被改动。\n` : '') +
         (threadsFirst ? '还没有一条叙事线：开拆之前先从情节大纲排一次（1 次，算在上面的数里；没排成不挡拆细纲）。\n' : '') +
         '每批写完就落盘，后一批接着前一批往下排；一批失败就停，已经写好的留着。\n' +
+        '每批写完由转写模型照抄成 JSON（不跟这里挑的模型，算在上面的数里）。\n' +
         (opts.expandLore ? '拆完展开本批新设定：新设定有几条要拆完才知道，到时再问一次次数。\n' : '') +
         '输出被截断或格式不对时会自动拆小重试，所以给的是上限。',
-      tasks: ['plotOutline'],
+      tasks: ['plotOutline', 'transcribe'],
       contextDetail: true,
     });
     if (answer?.action !== '开始拆细纲') {
@@ -623,7 +624,7 @@ export async function writeManuscripts(
         'manuscript',
         ...(reviewing ? ['review' as const] : []),
         'plotSummary',
-        ...(plan.plotBatches.length > 0 ? ['plotOutline' as const] : []),
+        ...(plan.plotBatches.length > 0 ? ['plotOutline' as const, 'transcribe' as const] : []),
         ...(mode === 'finalize' || castCards.plans.length > 0 ? ['characterCard' as const] : []),
       ],
       contextDetail: true,
