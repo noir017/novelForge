@@ -11,6 +11,7 @@ import {
   tabbar,
   taskBar,
   toastSlot,
+  versionsPane,
 } from '../shared/panes';
 
 /**
@@ -76,6 +77,7 @@ ${tabbar([
   { tab: 'chat', label: '对话', icon: '✎' },
   { tab: 'project', label: '工程', icon: '❐', dotId: 'projectStaleDot' },
   { tab: 'files', label: '文件', icon: '🗀' },
+  { tab: 'versions', label: '版本', icon: '±' },
   { tab: 'history', label: '历史', icon: '◷' },
   { tab: 'logs', label: '日志', icon: '☰', dotId: 'logsErrorDot', dotClass: 'err' },
   { tab: 'settings', label: '设置', icon: '⚙' },
@@ -92,6 +94,9 @@ ${projectPane()}
 
 <!-- 文件页：插件形态由 VS Code 自己的资源管理器承担，那边不装配这一块。 -->
 ${filesPane()}
+
+<!-- 版本页：编辑区当前那份文件的时间线（editor.js 画）。插件形态用 VS Code 自己的时间线，不装配。 -->
+${versionsPane()}
 
 ${historyPane()}
 

@@ -14,7 +14,7 @@ import type { ParagraphStyle } from '../model/paragraphFormat';
 import type { BookFindQuery, BookReplaceRequest } from './bookFind';
 import type { RestoreCheckpointRequest } from './checkpoints';
 
-export type Tab = 'chat' | 'project' | 'files' | 'history' | 'settings' | 'logs';
+export type Tab = 'chat' | 'project' | 'files' | 'versions' | 'history' | 'settings' | 'logs';
 
 export interface SendPayload {
   text: string;
@@ -172,19 +172,14 @@ export type InMessage =
    * 放弃什么都不回。宿主没有合并视图时只回一句说明。
    */
   | { type: 'mergeWithDisk'; path: string; text: string; requestId: string }
-  /** 历史版本（`workspace/history.ts`）：列出这份文件的快照，回 `versions`。 */
+  /** 历史版本（`workspace/history.ts`，连同这份文件在各存档点里的样子）：列出来，回 `versions`。 */
   | { type: 'listVersions'; path: string }
-  /** 读某一个快照的全文，回 `versionText`（同一个 `requestId`）。 */
+  /** 读某一版的全文（快照，或 `cp:` 开头的存档点里那一份），回 `versionText`（同一个 `requestId`）。 */
   | { type: 'readVersion'; path: string; id: string; requestId: string }
   /**
-   * 快照 ↔ 编辑器里当前的这一份（`text`）逐段挑；采纳后回 `editorReplace`（不带 `base`：基线不变）。
-   * 恢复与对比都**不写盘**，换进编辑区之后存不存由作者。
-   */
-  | { type: 'compareVersion'; path: string; id: string; text: string; requestId: string }
-  /**
    * 「现在存一版」：把**磁盘上当前**这份强制存一个快照（编辑器里没保存的修改不算），之后重推 `versions`。
-   * `quiet`：「恢复这一版」放回编辑区之前顺手发的那一次——不说话（成了、一样不重复存都不弹提示），只保证
-   * 换进来的内容存下去之前，被它盖掉的那一份已经在历史里（节流拦不住它）。
+   * `quiet`：「版本」侧栏与对比标签把一版（或一处）放回编辑区之前顺手发的那一次——不说话（成了、一样不重复存都不弹
+   * 提示），只保证换进来的内容存下去之前，被它盖掉的那一份已经在历史里（节流拦不住它）。
    */
   | { type: 'saveVersion'; path: string; quiet?: boolean }
   /**

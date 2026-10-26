@@ -418,6 +418,89 @@ export async function diffCheckpoint(
   return { unchanged, entries: entries.map((e) => ({ ...e, kind: kindOfPath(project, e.path).kind })) };
 }
 
+/** 一份文件在某个存档点里的样子（编辑器「版本」侧栏的时间线上一行）。 */
+export interface CheckpointVersion {
+  /** 存档点的 id。 */
+  id: string;
+  time: number;
+  note: string;
+  auto: boolean;
+  words: number;
+  bytes: number;
+}
+
+/**
+ * 一份文件在各存档点里的样子，新的在前。**内容一样的连着几个只留最早那一个**：一行说的是「到这个存档点，这一份变成了
+ * 这样」——三十个自动存档点里它一字没动，就只有一行。中间有存档点里没有它（当时删了、还没建）的，之后再出现算新的一行。
+ */
+export async function checkpointVersionsOf(project: NovelProject, rel: string): Promise<CheckpointVersion[]> {
+  const out: CheckpointVersion[] = [];
+  let prev: string | undefined;
+  for (const cp of (await listCheckpointsCached(project)).slice().reverse()) {
+    const f = cp.files[rel];
+    if (f && f.sha !== prev) {
+      out.push({ id: cp.id, time: cp.time, note: cp.note, auto: cp.auto, words: f.words, bytes: f.bytes });
+    }
+    prev = f?.sha;
+  }
+  return out.reverse();
+}
+
+/**
+ * 读过的清单按「文件名 + 大小 + 修改时间」记着：侧栏跟着当前文件走、每次保存之后都要重列，一份清单列着全书每份文件，
+ * 几十个存档点每次都整份重读重解析不值得。写备注改了清单、裁掉了旧的，大小或修改时间变了、名字没了，自然重读。
+ */
+const manifestCache = new Map<string, { stamp: string; manifest: CheckpointManifest | undefined }>();
+
+async function listCheckpointsCached(project: NovelProject): Promise<CheckpointInfo[]> {
+  const dir = pointsDirOf(project);
+  let names: string[];
+  try {
+    names = (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && e.name.endsWith('.json')).map((e) => e.name);
+  } catch {
+    return [];
+  }
+  const list: CheckpointInfo[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const id = name.slice(0, -'.json'.length);
+    if (parseCheckpointId(id) === undefined) {
+      continue;
+    }
+    const abs = path.join(dir, name);
+    seen.add(abs);
+    let stamp: string;
+    try {
+      const st = await fs.stat(abs);
+      stamp = `${st.size}:${st.mtimeMs}`;
+    } catch {
+      continue;
+    }
+    let cached = manifestCache.get(abs);
+    if (cached?.stamp !== stamp) {
+      let manifest: CheckpointManifest | undefined;
+      try {
+        manifest = parseManifest(await fs.readFile(abs, 'utf8'), id);
+      } catch {
+        manifest = undefined;
+      }
+      cached = { stamp, manifest };
+      manifestCache.set(abs, cached);
+    }
+    if (cached.manifest) {
+      list.push({ ...cached.manifest, id });
+    }
+  }
+  // 裁掉了的存档点不再占着内存。
+  for (const key of manifestCache.keys()) {
+    if (path.dirname(key) === dir && !seen.has(key)) {
+      manifestCache.delete(key);
+    }
+  }
+  list.sort((a, b) => b.time - a.time || b.id.localeCompare(a.id));
+  return list;
+}
+
 // ---------------------------------------------------------------- 存
 
 export interface CreateCheckpointResult {

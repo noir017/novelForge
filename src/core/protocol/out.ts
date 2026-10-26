@@ -227,17 +227,16 @@ export type OutMessage =
   | { type: 'editorReveal'; path: string; quote: string }
   /**
    * 把编辑区里这份文件换成这段文字（`Pane.applyEdit`：一步撤销，成为未保存，不写盘）。冲突条「对比合并」
-   * 采纳之后带 `base`：乐观锁基线换成磁盘上那一份（冲突条随之收起，之后照常 Ctrl+S，不必强制保存）；
-   * 对比历史版本之后不带，基线不变。**只有发起的那个页面认**（`requestId`）——回复是广播，同一个工程
-   * 开着两个窗口时，另一个窗口里那一份不该被换掉。
+   * 采纳之后带 `base`：乐观锁基线换成磁盘上那一份（冲突条随之收起，之后照常 Ctrl+S，不必强制保存）。
+   * **只有发起的那个页面认**（`requestId`）——回复是广播，同一个工程开着两个窗口时，另一个窗口里那一份不该被换掉。
    */
   | { type: 'editorReplace'; requestId: string; path: string; text: string; base?: { text: string; hash: string } }
   /**
-   * 这份文件的历史版本（`workspace/history.ts`），新的在前。`unavailable`：不存历史版本的原因（不是工程里的
+   * 这份文件的历史版本（快照与存档点里的样子混排，新的在前）。`unavailable`：不存历史版本的原因（不是工程里的
    * 创作产物、还不是小说工程……），这时 `entries` 是空的。
    */
   | { type: 'versions'; path: string; entries: VersionView[]; unavailable?: string }
-  /** 回 `readVersion`：那一个快照的全文；读不到时给 `error`。 */
+  /** 回 `readVersion`：那一版的全文；读不到时给 `error`。 */
   | { type: 'versionText'; requestId: string; path: string; id: string; text?: string; error?: string }
   /**
    * 存档点列表（`protocol/checkpoints.ts`），新的在前。`unavailable`：存不了的原因（还不是小说工程），这时
@@ -429,14 +428,16 @@ export interface FileOpResult {
 }
 
 /**
- * 一个历史版本（快照，`workspace/history.ts` 的 `SnapshotInfo`）。`id` 是快照的文件名，读它、对比它时认它；
- * `time` 是这一版在磁盘上被覆盖掉的那一刻（毫秒时间戳）。
+ * 一个历史版本：快照（`workspace/history.ts` 的 `SnapshotInfo`），或这份文件在某个存档点里的样子（带 `checkpoint`，
+ * `workspace/checkpoints.ts` 的 `checkpointVersionsOf`）。`id` 读它时认它：快照是快照的文件名，存档点是 `cp:<存档点 id>`；
+ * `time` 对快照是这一版在磁盘上被覆盖掉的那一刻，对存档点是存下的那一刻（毫秒时间戳）。
  */
 export interface VersionView {
   id: string;
   time: number;
   words: number;
   bytes: number;
+  checkpoint?: { note: string; auto: boolean };
 }
 
 export interface EditorFileView {

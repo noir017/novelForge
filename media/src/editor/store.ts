@@ -164,13 +164,13 @@ export interface PaneSnapshot {
 // ---------------------------------------------------------------- 特殊标签
 
 /**
- * 编辑区里**不对应文件**的标签（叙事线重做三期：「叙事线总览」）。编辑区原本只认文件——标签就是一份打开的文件、
- * 显示的是 textarea——这是给它开的唯一一道口子：`pane.ts` 只认这个接口，不知道里面画的是什么；画的东西照历史版本
- * 抽屉的做法挂在这一块的 `.ed-stage` 上，盖住正文区（模块自己现造、自己藏）。
+ * 编辑区里**不对应文件**的标签（叙事线重做三期：「叙事线总览」；之后有「时间线总览」与「版本」的对比标签）。编辑区原本
+ * 只认文件——标签就是一份打开的文件、显示的是 textarea——这是给它开的唯一一道口子：`pane.ts` 只认这个接口，不知道里面
+ * 画的是什么；画的东西挂在这一块的 `.ed-stage` 上，盖住正文区（模块自己现造、自己藏）。
  *
  * - 标签排在文件标签前面，写 `label().title`，没有脏标记；点了切过去、× 与中键关掉、右键「关闭」加 `menu()` 给的几项。
  * - 切过去时这一块没有当前文件（见 `Pane.activeSpecial`）；切回一份文件、或从别处打开一份文件到这一块，它就藏起来。
- * - 刷新记着（`PaneSnapshot.specials` / `special`），恢复时先于文件打开，陆续回来的文件不把正显示着的它换下去。
+ * - 刷新记着（`PaneSnapshot.specials` / `special`），恢复时先于文件打开，陆续回来的文件不把正显示着的它换下去；`transient` 的不记。
  */
 export interface SpecialTab {
   /** 稳定的 id，记进 localStorage。 */
@@ -183,6 +183,8 @@ export interface SpecialTab {
   hide(pane: Pane): void;
   /** 标签右键「关闭」之后的那几项。 */
   menu?(pane: Pane): MenuItem[];
+  /** 不进刷新恢复（「版本」的对比标签：看的是哪两版只在这一页里记着，刷新之后没有可画的）。 */
+  readonly transient?: boolean;
 }
 
 const specialTabs = new Map<string, SpecialTab>();

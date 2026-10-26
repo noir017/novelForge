@@ -17,7 +17,8 @@
  *   「视图」菜单的 `nf-view-query` / `nf-view-command`，「帮助 → 快捷键一览」的 `nf-shortcuts-query` / `nf-shortcuts-command`，
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
- *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录），
+ *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）、`nf-show-versions`
+ *   （editor → view：切到侧栏「版本」页），
  *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`，工程页「叙事线」页签打开编辑区「叙事线总览」的
  *   `nf-threads-query` / `nf-threads-command`（工程页「时间线」组打开「时间线总览」的 `nf-timeline-query` / `nf-timeline-command` 同样），工程页「存档点…」退回时问内置编辑器哪几份没保存的
  *   `nf-dirty-query`。
@@ -103,6 +104,7 @@ declare global {
     'nf-shortcuts-query': CustomEvent<{ available: boolean }>;
     'nf-shortcuts-command': Event;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
+    'nf-show-versions': Event;
     'nf-selection-query': CustomEvent<EditorSelection>;
     'nf-threads-query': CustomEvent<{ available: boolean }>;
     'nf-threads-command': CustomEvent<ThreadsOverviewCommand>;
@@ -219,7 +221,7 @@ export function commandParagraph(name: ParagraphCommandName): void {
 
 /**
  * 标题栏「文件 → 历史版本…」问编辑器的状态（`editor/versions.ts` 回答）：当前那块编辑区开着的文件存不存
- * 历史版本，不存的话为什么（菜单项置灰时挂在提示上）。
+ * 历史版本，不存的话为什么（菜单项置灰时挂在提示上）。点了切到侧栏「版本」页（经 `nf-versions-command`）。
  */
 export interface VersionsStatus {
   available: boolean;
@@ -234,9 +236,14 @@ export function queryVersions(): VersionsStatus {
   return status;
 }
 
-/** 打开当前那块编辑区的「历史版本」面板。 */
+/** 看当前那块编辑区那份文件的历史版本：切到侧栏「版本」页。 */
 export function commandVersions(name: 'open'): void {
   window.dispatchEvent(new CustomEvent('nf-versions-command', { detail: { name } }));
+}
+
+/** 切到侧栏「版本」页（editor.js 发，view.js 的 `tabs.ts` 切；插件形态没有这一页）。 */
+export function showVersionsTab(): void {
+  window.dispatchEvent(new Event('nf-show-versions'));
 }
 
 // ---------------------------------------------------------------- 「文件」菜单「转到…」

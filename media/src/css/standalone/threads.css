@@ -1,6 +1,6 @@
 /*
  * 编辑区「叙事线总览」标签（叙事线重做三期，editor/threadsOverview.ts）：章 × 线的时间轴，挂在一块编辑区的 .ed-stage 上、
- * 盖住正文区（照历史版本抽屉的做法）。只有独立版有内置编辑器，所以在 standalone 这边。
+ * 盖住正文区（「版本」的对比标签同一个做法）。只有独立版有内置编辑器，所以在 standalone 这边。
  *
  * - 左列（线名、伏笔名）与表头固定：.tov-scroll 是唯一的滚动容器，表头 sticky top、左列 sticky left、左上角两样都 sticky。
  * - 格子是稀疏的：一行只有有事件的那几章才有节点（.tov-cell），列的分隔线是 .tov-track 的背景。一列多宽来自 JS 写在

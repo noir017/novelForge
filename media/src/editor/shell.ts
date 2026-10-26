@@ -206,3 +206,8 @@ export function revealEditor(): void {
     document.body.classList.add('editor-open');
   }
 }
+
+/** 窄屏下要看侧栏（编辑区工具栏「历史」切到「版本」页）：把编辑区翻下去。 */
+export function revealSide(): void {
+  document.body.classList.remove('editor-open');
+}

@@ -218,6 +218,8 @@ export function createPane(
   }
 
   function snapshot() {
+    // 不进刷新恢复的特殊标签（对比标签）不记；正显示着的是它时照样记切过去之前的那一份，刷新后回到那份文件。
+    const kept = specials.filter((id) => !specialTabOf(id)?.transient);
     return {
       open: [...files.values()].map((f) => ({
         path: f.path,
@@ -228,8 +230,8 @@ export function createPane(
       })),
       // 特殊标签正显示着：记切过去之前的那一份，刷新之后关掉特殊标签还回得去。
       active: shownSpecial ? (specialReturn && files.has(specialReturn) ? specialReturn : null) : pane.activePath,
-      ...(specials.length > 0 ? { specials: [...specials] } : {}),
-      ...(shownSpecial ? { special: shownSpecial } : {}),
+      ...(kept.length > 0 ? { specials: kept } : {}),
+      ...(shownSpecial && kept.includes(shownSpecial) ? { special: shownSpecial } : {}),
     };
   }
 

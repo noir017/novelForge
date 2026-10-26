@@ -82,7 +82,7 @@ import {
   serializeSession,
 } from './serialize';
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
-import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
+import { listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
 import {
   compareCheckpointFile,
   pushCheckpointDiff,
@@ -554,9 +554,6 @@ export class ChatController {
         return;
       case 'readVersion':
         await readVersion(this, msg.path, msg.id, msg.requestId);
-        return;
-      case 'compareVersion':
-        await compareVersion(this, msg.path, msg.id, msg.text, msg.requestId);
         return;
       case 'saveVersion':
         await saveVersion(this, msg.path, msg.quiet === true);
