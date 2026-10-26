@@ -227,8 +227,8 @@ export function filesPane(): string {
 }
 
 /**
- * 版本页（只有独立版装配：内容由 editor.js 的 `editor/versions.ts` 画）：编辑区当前那份文件的时间线——还没保存的改动、
- * 快照、存档点里的样子，点一行在编辑区开对比标签。
+ * 版本页（只有独立版装配：内容由 editor.js 的 `editor/versions.ts` 画）：上面全书改动（跟一个存档点比改过的文件），下面编辑区
+ * 当前那份文件的时间线（还没保存的改动、快照、存档点里的样子），点一行在编辑区开对比标签。
  */
 export function versionsPane(): string {
   return `<section class="pane" id="pane-versions">
@@ -238,7 +238,6 @@ export function versionsPane(): string {
     <button class="icon-btn" id="versionsSave" title="现在存一版：把磁盘上现在这一份存下来（编辑器里没保存的修改不在里面）">＋</button>
     <button class="icon-btn" id="versionsRefresh" title="刷新">⟳</button>
   </div>
-  <div class="vs-file" id="versionsFile"></div>
   <div class="vs-body" id="versionsBody"></div>
   <div class="hint vs-foot" id="versionsFoot"></div>
 </section>`;

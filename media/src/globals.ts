@@ -18,7 +18,8 @@
  *   「视图 → 统计」那一组的 `nf-stats-query` / `nf-stats-command`，「视图 → 体检」那一组的 `nf-check-query` /
  *   `nf-check-command`，「视图 → 补全」那一组的 `nf-names-query` / `nf-names-command`，
  *   以及 `nf-reveal-in-files`（editor → explorer + view：在「文件」页定位到某个文件或目录）、`nf-show-versions`
- *   （editor → view：切到侧栏「版本」页），
+ *   （editor → view：切到侧栏「版本」页）、存档点弹窗「对比」在编辑区开对比标签的 `nf-version-diff-query` /
+ *   `nf-version-diff-command`，
  *   对话页「加入选区」问内置编辑器选区的 `nf-selection-query`，工程页「叙事线」页签打开编辑区「叙事线总览」的
  *   `nf-threads-query` / `nf-threads-command`（工程页「时间线」组打开「时间线总览」的 `nf-timeline-query` / `nf-timeline-command` 同样），工程页「存档点…」退回时问内置编辑器哪几份没保存的
  *   `nf-dirty-query`。
@@ -105,6 +106,8 @@ declare global {
     'nf-shortcuts-command': Event;
     'nf-reveal-in-files': CustomEvent<{ path: string; dir: boolean }>;
     'nf-show-versions': Event;
+    'nf-version-diff-query': CustomEvent<{ available: boolean }>;
+    'nf-version-diff-command': CustomEvent<CheckpointFileDiffCommand>;
     'nf-selection-query': CustomEvent<EditorSelection>;
     'nf-threads-query': CustomEvent<{ available: boolean }>;
     'nf-threads-command': CustomEvent<ThreadsOverviewCommand>;
@@ -239,6 +242,25 @@ export function queryVersions(): VersionsStatus {
 /** 看当前那块编辑区那份文件的历史版本：切到侧栏「版本」页。 */
 export function commandVersions(name: 'open'): void {
   window.dispatchEvent(new CustomEvent('nf-versions-command', { detail: { name } }));
+}
+
+/** 存档点弹窗里「对比」一份：那个存档点里的这一份 ↔ 现在，在编辑区的对比标签里看（`editor/versions.ts` 接）。 */
+export interface CheckpointFileDiffCommand {
+  path: string;
+  /** 同 `CheckpointFileStatus`：改过的、之后删掉的、之后新建的。 */
+  status: 'changed' | 'deleted' | 'added';
+  checkpoint: { id: string; time: number; note: string; auto: boolean };
+}
+
+/** 有没有人画得了对比标签（只有装了内置编辑器的独立版、桌面版回答）。 */
+export function queryVersionDiff(): boolean {
+  const status = { available: false };
+  window.dispatchEvent(new CustomEvent('nf-version-diff-query', { detail: status }));
+  return status.available;
+}
+
+export function commandVersionDiff(cmd: CheckpointFileDiffCommand): void {
+  window.dispatchEvent(new CustomEvent('nf-version-diff-command', { detail: cmd }));
 }
 
 /** 切到侧栏「版本」页（editor.js 发，view.js 的 `tabs.ts` 切；插件形态没有这一页）。 */

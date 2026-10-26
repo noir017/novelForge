@@ -5,7 +5,10 @@
  * - **一个不对应文件的特殊标签**（`store.ts` 的 `SpecialTab`，同「叙事线总览」），**只有一个**：再点别的一行就换掉里面
  *   的内容（像 VS Code 的预览标签）；开在那份文件所在的那一块里。**不进刷新恢复**（`transient`）：看的是哪两版只在这一页里记着。
  * - **三种比法**：一版 ↔ 现在（缺省：右边是编辑器里那一份，没保存的也算）；一版 ↔ 它后面一版（侧栏右键「跟后一版比」：
- *   看那一次改了什么，两边都是存下的，只能看）；磁盘上的 ↔ 编辑器里的（侧栏最上面那一行「还没保存的改动」）。
+ *   看那一次改了什么，两边都是存下的，只能看）；磁盘上的 ↔ 编辑器里的（侧栏最上面那一行「还没保存的改动」）。全书改动里
+ *   存档点之后新建的左边是空的、之后删掉的右边是空的（`empty`，只能看）。
+ * - **右边是现在、那份文件却没开着**（全书改动、存档点弹窗里点的）：先开成临时标签（`openEditor` 带 `preview`），等它进了
+ *   编辑区再开对比标签——用回、恢复都要改编辑区里那一份。
  * - **跟得上**：右边是编辑器里那一份时，那份文件一改（这里放回一处、另一块里在打字、磁盘上的新版进来、保存）就重比；
  *   藏着时只记一笔，下次显示再比。那份文件关掉了就照实说，不拿旧的比。
  * - **用回这一处 / 恢复整份**（只在右边是编辑器里那一份时有）：只换编辑区里的内容——一步撤销、成为未保存、**不写盘**（第 3 条）。
@@ -38,14 +41,19 @@ export interface VersionRef {
   label: string;
 }
 
-/** 要比的两边。左边 `disk`：磁盘上的（上次保存的那一份）；右边 `now`：编辑器里的。 */
+/**
+ * 要比的两边。左边 `disk`：磁盘上的（上次保存的那一份）；右边 `now`：编辑器里的；`empty`：那一边没有这份文件（存档点里
+ * 还没有、现在已经删了）。
+ */
 export interface DiffRequest {
   path: string;
   /** 标签与标题上写的文件名。 */
   name: string;
-  left: VersionRef | 'disk';
-  right: VersionRef | 'now';
+  left: VersionRef | 'disk' | 'empty';
+  right: VersionRef | 'now' | 'empty';
 }
+
+type Side = DiffRequest['left'] | DiffRequest['right'];
 
 /** 每处改动前后各留几行没改的。 */
 const CONTEXT = 1;
@@ -85,6 +93,8 @@ const expanded = new Set<number>();
 let current = -1;
 /** 新换上的这一对还没画出改动：画出来时停到第一处。 */
 let jumpPending = false;
+/** 等那份文件进编辑区（`openEditor` 发出去了）再开的那一个。 */
+let pendingOpen: DiffRequest | undefined;
 /** 藏着的时候编辑器里那份变过：下次显示再比。 */
 let stale = false;
 let rediffTimer: ReturnType<typeof setTimeout> | undefined;
@@ -152,9 +162,10 @@ export function openDiff(next: DiffRequest): void {
   }
   const same = req && sameRequest(req, next);
   req = next;
+  pendingOpen = undefined;
   if (!same) {
-    leftText = next.left === 'disk' ? undefined : textCache.get(`${next.path}\u0000${next.left.id}`);
-    rightText = next.right === 'now' ? undefined : textCache.get(`${next.path}\u0000${next.right.id}`);
+    leftText = typeof next.left === 'string' ? undefined : textCache.get(`${next.path}\u0000${next.left.id}`);
+    rightText = typeof next.right === 'string' ? undefined : textCache.get(`${next.path}\u0000${next.right.id}`);
     loadError = undefined;
     expanded.clear();
     current = -1;
@@ -168,6 +179,16 @@ export function openDiff(next: DiffRequest): void {
   pane.openSpecial(VERSION_DIFF_TAB);
   render();
   notify();
+}
+
+/** 同 {@link openDiff}；右边是现在、那份文件却没开着时先开成临时标签，进了编辑区再开对比标签。 */
+export function openFileDiff(next: DiffRequest): void {
+  if (next.right !== 'now' || paneOwning(next.path)) {
+    openDiff(next);
+    return;
+  }
+  pendingOpen = next;
+  post({ type: 'openEditor', path: next.path, preview: true });
 }
 
 /**
@@ -198,7 +219,7 @@ export async function restoreVersion(path: string, ref: VersionRef): Promise<voi
 }
 
 function sameRequest(a: DiffRequest, b: DiffRequest): boolean {
-  const key = (s: VersionRef | 'disk' | 'now') => (typeof s === 'string' ? s : s.id);
+  const key = (s: Side) => (typeof s === 'string' ? s : s.id);
   return a.path === b.path && key(a.left) === key(b.left) && key(a.right) === key(b.right);
 }
 
@@ -225,10 +246,10 @@ function load(r: DiffRequest): void {
       }
     );
   };
-  if (r.left !== 'disk' && leftText === undefined) {
+  if (typeof r.left !== 'string' && leftText === undefined) {
     fetch(r.left, (text) => (leftText = text));
   }
-  if (r.right !== 'now' && rightText === undefined) {
+  if (typeof r.right !== 'string' && rightText === undefined) {
     fetch(r.right, (text) => (rightText = text));
   }
 }
@@ -256,6 +277,12 @@ export function installVersionDiff(postMessage: (msg: InMessage) => void): void 
 
   // 编辑器里那份变了（打字、放回一处、磁盘上的新版、保存换了基线）：显示着就停一下再比，藏着就记一笔。
   onEditorChange((ev) => {
+    // 等着的那份文件进了编辑区：这一轮重画完了再开对比标签（这会儿还在 upsertFile 里）。
+    if (pendingOpen && ev.type === 'render' && paneOwning(pendingOpen.path)) {
+      const next = pendingOpen;
+      pendingOpen = undefined;
+      queueMicrotask(() => openDiff(next));
+    }
     if (!req || (req.right !== 'now' && req.left !== 'disk')) {
       return;
     }
@@ -272,6 +299,7 @@ export function installVersionDiff(postMessage: (msg: InMessage) => void): void 
 
   window.addEventListener('nf-workspace-reset', () => {
     req = undefined;
+    pendingOpen = undefined;
     textCache.clear();
     shownDiff = undefined;
   });
@@ -344,7 +372,7 @@ function ensureView(): View {
   prev.addEventListener('click', () => step(-1));
   next.addEventListener('click', () => step(1));
   restore.addEventListener('click', () => {
-    if (req && req.left !== 'disk' && req.right === 'now') {
+    if (req && typeof req.left !== 'string' && req.right === 'now') {
       void restoreVersion(req.path, req.left);
     }
   });
@@ -365,6 +393,9 @@ function sideLabel(side: 'left' | 'right'): string {
   if (s === 'disk') {
     return '磁盘上的（上次保存的）';
   }
+  if (s === 'empty') {
+    return side === 'left' ? '存档点里还没有这一份' : '现在已经没有这一份了（删了或改了名）';
+  }
   if (s === 'now') {
     const file = paneOwning(req.path)?.files.get(req.path);
     return file && file.draft !== file.text ? '现在（编辑器里，还没保存）' : '现在';
@@ -378,6 +409,9 @@ function sideText(side: 'left' | 'right'): string | undefined {
     return undefined;
   }
   const s = req[side];
+  if (s === 'empty') {
+    return '';
+  }
   if (s === 'now' || s === 'disk') {
     const file = paneOwning(req.path)?.files.get(req.path);
     return file ? (s === 'now' ? file.draft : file.text) : undefined;
@@ -401,7 +435,7 @@ function render(): void {
   v.title.title = req.path;
   v.leftHead.textContent = sideLabel('left');
   v.rightHead.textContent = sideLabel('right');
-  setHidden(v.restore, !(req.left !== 'disk' && editable()));
+  setHidden(v.restore, !(typeof req.left !== 'string' && editable()));
   host?.refresh();
 
   const before = sideText('left');

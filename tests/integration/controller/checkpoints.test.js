@@ -1,6 +1,6 @@
 /**
- * 工程页「存档点…」弹窗的后端一半（`controller/checkpoints.ts`）：六条消息走一遍。合并视图用假宿主的 `mergeTexts`
- * 代替（记下两边与称呼，按排好的回答交回）。存储与退回的细节在 tests/integration/workspace/checkpoints.test.js。
+ * 工程页「存档点…」弹窗的后端一半（`controller/checkpoints.ts`）：五条消息走一遍。存储与退回的细节在
+ * tests/integration/workspace/checkpoints.test.js。
  *
  * | 断言 | 为什么 |
  * |---|---|
@@ -9,7 +9,6 @@
  * | 退回：toast 汇总、`pushState`、重推列表（多了「退回之前」）与这个存档点的比较（变成一模一样） | 作者看得到退回了什么、还能退回来 |
  * | 有任务在跑：拒绝，什么都不动 | 一边写一边退，谁也说不清 |
  * | 写备注：自动的留住 | 不被自动裁掉 |
- * | 单份对比：左边存档点里的、右边现在的；挑好的直接写盘（带乐观锁）；一处没挑不写；没有合并视图的宿主说一句 | 第 3 条：合并视图里点的「写入」就是那一问 |
  */
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,8 +28,6 @@ let fakeHost;
 let t;
 let controller;
 let posted = [];
-const merges = [];
-const answers = [];
 
 const ofType = (type) => posted.filter((m) => m.type === type);
 const toasts = () => ofType('toast').map((m) => `${m.level}: ${m.message}`).join('\n');
@@ -57,17 +54,7 @@ before(async () => {
     db: './src/core/runtime/db.ts',
   });
   const settings = makeSettings({ contextWindow: 100000 });
-  fakeHost = makeFakeHost({
-    name: 'standalone',
-    settings: () => settings,
-    overrides: {
-      mergeTexts: async (title, before, after, opts) => {
-        merges.push({ title, before, after, opts });
-        const a = answers.shift();
-        return typeof a === 'function' ? a({ before, after }) : a;
-      },
-    },
-  });
+  fakeHost = makeFakeHost({ name: 'standalone', settings: () => settings });
   bundle.host.initHost(fakeHost.host);
   t = await makeTempProject(bundle.project, { prefix: 'checkpoints-ctl', title: '青云剑录' });
   t.write(CHAPTER, ORIGINAL);
@@ -181,74 +168,5 @@ describe('跟现在比与退回', () => {
     assert.equal(after.auto, false);
     assert.equal(after.note, '改坏之前');
     assert.match(toasts(), /会一直留着/);
-  });
-});
-
-describe('单份对比', () => {
-  let id;
-
-  before(async () => {
-    t.write(CHAPTER, ORIGINAL);
-    await send({ type: 'createCheckpoint', note: '对比用' });
-    id = ofType('checkpoints')[0].entries.find((e) => e.note === '对比用').id;
-    t.write(CHAPTER, CHANGED);
-  });
-
-  test('左边存档点里的、右边现在的；挑好的直接写盘，之后重推比较', async () => {
-    const merged = '# 雨夜\n\n他推开门。\n\n雨下了四天。\n';
-    answers.push({ merged });
-    await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-    const call = merges.at(-1);
-    assert.equal(call.before, ORIGINAL);
-    assert.equal(call.after, CHANGED);
-    assert.deepEqual(call.opts.sides, { before: '存档点里的', after: '现在的' });
-    assert.equal(call.opts.applyLabel, '写入');
-    assert.match(call.title, /「对比用」/);
-    assert.equal(t.read(CHAPTER), merged);
-    assert.match(toasts(), /已写入/);
-    assert.equal(ofType('checkpointDiff')[0].id, id);
-    const dir = t.rel('.novelforge/history', CHAPTER);
-    assert.ok(fs.existsSync(dir) && fs.readdirSync(dir).length > 0, '被盖掉的那一份存了一版历史');
-  });
-
-  test('一处没挑（交回的与现在一样）：不写，说一句；关掉：什么都不做', async () => {
-    const now = t.read(CHAPTER);
-    answers.push('apply');
-    await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-    assert.match(toasts(), /没有挑存档点里的任何一处/);
-    answers.push(undefined);
-    await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-    assert.equal(posted.length, 0);
-    assert.equal(t.read(CHAPTER), now);
-  });
-
-  test('对比期间磁盘上又变了：不写，说一句', async () => {
-    answers.push(() => {
-      t.write(CHAPTER, '# 雨夜\n\n别处刚改的。\n');
-      return { merged: ORIGINAL };
-    });
-    await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-    assert.match(toasts(), /^error: 对比期间 .* 在磁盘上又变了/);
-    assert.equal(t.read(CHAPTER), '# 雨夜\n\n别处刚改的。\n');
-  });
-
-  test('现在已经没有这一份：右边是空的，挑好的照新建写', async () => {
-    t.remove(CHAPTER);
-    answers.push(({ before }) => ({ merged: before }));
-    await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-    assert.equal(merges.at(-1).after, '');
-    assert.equal(merges.at(-1).opts.sides.after, '现在（没有这一份）');
-    assert.equal(t.read(CHAPTER), ORIGINAL);
-  });
-
-  test('宿主没有合并视图：说一句，不抛', async () => {
-    const saved = fakeHost.host.mergeTexts;
-    fakeHost.host.mergeTexts = undefined;
-    try {
-      await send({ type: 'compareCheckpointFile', id, path: CHAPTER });
-      assert.match(toasts(), /^error: 这里没有对比视图/);
-    } finally {
-      fakeHost.host.mergeTexts = saved;
-    }
   });
 });

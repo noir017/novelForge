@@ -1,20 +1,13 @@
 /**
- * 工程页「存档点…」弹窗的后端一半：列、存、写备注、跟现在比、单份对比、退回。存储在 `workspace/checkpoints.ts`，
- * 退回的编排在 `features/checkpoint.ts`，设计见 `docs/design/plans/2026-10-20-checkpoints.md`。
- *
- * 单份对比走宿主的合并视图（`Host.mergeTexts`，独立版与桌面版有）：存档点里的那一份 ↔ 磁盘上现在这份，挑好的**直接
- * 写盘**——这里没有编辑区可以放回去，合并视图里点的「写入」就是那一问（第 3 条）；经网关 `write`（`review: false`，
- * 带打开对比时磁盘那一份的 hash 当乐观锁），覆盖之前照样存一版历史。
+ * 工程页「存档点…」弹窗与编辑器「版本」侧栏「全书改动」的后端一半：列、存、写备注、跟现在比、退回。存储在
+ * `workspace/checkpoints.ts`，退回的编排在 `features/checkpoint.ts`，设计见 `docs/design/plans/2026-10-20-checkpoints.md`。
+ * 单份对比在内置编辑器的对比标签里（`media/src/editor/versionDiff.ts`，全文经 `readVersion` 的 `cp:` 取），这里不管。
  */
-import * as path from 'node:path';
 import type { ChatController } from './index';
-import { getHost } from '../host';
-import { decodeFileText } from '../model/importText';
 import { describeError, scoped } from '../runtime/logger';
 import { activeTasks } from '../runtime/progress';
 import type { CheckpointView, RestoreCheckpointRequest } from '../protocol/checkpoints';
 import { NovelProject } from '../model/project';
-import { WsConflictError, WsError } from '../workspace';
 import {
   CheckpointInfo,
   checkpointUnavailable,
@@ -22,8 +15,6 @@ import {
   diffCheckpoint,
   listCheckpoints,
   noteCheckpoint,
-  readCheckpoint,
-  readCheckpointBytes,
 } from '../workspace/checkpoints';
 import { kindOfPath } from '../workspace/kind';
 import { RESTORE_SKIP_TEXT, RestoreOutcome, describeCheckpoint, restoreCheckpoint } from '../features/checkpoint';
@@ -101,71 +92,6 @@ export async function pushCheckpointDiff(c: ChatController, id: string): Promise
   } catch (err) {
     c.post({ type: 'checkpointDiff', id, error: describeError(err) });
   }
-}
-
-/** 单份对比（见文件头）。写了就 `pushState` 并重推这个存档点的比较。 */
-export async function compareCheckpointFile(c: ChatController, id: string, rel: string): Promise<void> {
-  const host = getHost();
-  if (!host.mergeTexts) {
-    c.toast('这里没有对比视图（独立版与桌面版有）：可以直接「退回这一份」，被盖掉的那一份会先存一版历史。', 'error');
-    return;
-  }
-  let cp: CheckpointInfo;
-  let old: string;
-  try {
-    cp = await readCheckpoint(c.project, id);
-    old = decodeFileText(await readCheckpointBytes(c.project, cp, rel));
-  } catch (err) {
-    c.toast(describeError(err), 'error');
-    return;
-  }
-  let disk: { text: string; hash: string } | undefined;
-  try {
-    disk = await c.workspace.read(rel);
-  } catch (err) {
-    if (!(err instanceof WsError && err.code === 'notFound')) {
-      c.toast(describeError(err), 'error');
-      return;
-    }
-    disk = undefined; // 现在没有这一份：右边是空的，挑好的照新建写。
-  }
-  const now = disk?.text ?? '';
-  const verdict = await host.mergeTexts(
-    `对比「${path.posix.basename(rel)}」：存档点 ${describeCheckpoint(cp)} ↔ 现在`,
-    old,
-    now,
-    {
-      sides: { before: '存档点里的', after: disk ? '现在的' : '现在（没有这一份）' },
-      applyLabel: '写入',
-      message: `${rel}　·　挑好之后直接写盘${disk ? '（被盖掉的这一份先存一版历史）' : ''}`,
-    }
-  );
-  const merged = typeof verdict === 'object' ? verdict.merged : verdict === 'apply' ? now : undefined;
-  if (merged === undefined) {
-    return;
-  }
-  if (merged === now) {
-    c.toast('没有挑存档点里的任何一处，没有改动。');
-    return;
-  }
-  try {
-    await c.workspace.write(
-      rel,
-      { text: merged },
-      disk ? { mode: 'overwrite', review: false, baseHash: disk.hash } : { mode: 'create' }
-    );
-    log.info(`对比存档点 ${id} 的 ${rel}：写入`, `${merged.length} 字符`);
-    c.toast(`已写入 ${rel}。`);
-  } catch (err) {
-    if (err instanceof WsConflictError || (err instanceof WsError && err.code === 'exists')) {
-      c.toast(`对比期间 ${rel} 在磁盘上又变了，没写：重新对比一次。`, 'error');
-    } else {
-      c.toast(describeError(err), 'error');
-    }
-    return;
-  }
-  await c.pushState();
-  await pushCheckpointDiff(c, id);
 }
 
 /** 退回（单份或整本）。之后 `pushState`、重推列表（多了「退回之前」那一个）与这个存档点的比较。 */

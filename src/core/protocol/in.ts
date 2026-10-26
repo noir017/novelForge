@@ -192,11 +192,6 @@ export type InMessage =
   | { type: 'noteCheckpoint'; id: string; note: string }
   /** 这个存档点跟现在比，回 `checkpointDiff`。 */
   | { type: 'checkpointDiff'; id: string }
-  /**
-   * 存档点里的那一份 ↔ 磁盘上现在这份逐段挑（`Host.mergeTexts`）。挑好的经网关直接写盘（乐观锁是打开对比时磁盘上
-   * 那一份）。宿主没有合并视图时只回一句说明。
-   */
-  | { type: 'compareCheckpointFile'; id: string; path: string }
   /** 退回（单份或整本，面板上点了两下）。先存一个「退回之前」，逐份写回，之后重推 `checkpoints` 与 `checkpointDiff`。 */
   | { type: 'restoreCheckpoint'; request: RestoreCheckpointRequest }
   /**

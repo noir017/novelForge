@@ -293,17 +293,48 @@ function shaOf(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
 
+/**
+ * 读过、算过的那几样按「大小 + 修改时间 + 状态改变时间」记着（绝对路径为键）：编辑器「版本」侧栏的全书改动每存一次盘就
+ * 跟存档点比一次，全书几千份每次都整份读、整份算 sha 不值得。写过的文件 ctime 一定变（`utimes` 改不了它），记着的就不认了；
+ * 万一认错，`hashNow` 只是退回时的乐观锁，对不上就跳过那一份，不会拿旧稿盖新稿。
+ */
+const scanCache = new Map<string, { stamp: string; file: CurrentFile }>();
+
 /** 此刻磁盘上要进存档点的每一份：sha、字数、乐观锁 hash。读不动的跳过（刚被删掉）。 */
 export async function scanCurrent(project: NovelProject): Promise<Record<string, CurrentFile>> {
   const out: Record<string, CurrentFile> = {};
+  const seen = new Set<string>();
   for (const rel of await trackedFiles(project)) {
-    let buf: Buffer;
+    const abs = path.resolve(project.pathOf(rel));
+    let stamp: string;
     try {
-      buf = await fs.readFile(project.pathOf(rel));
+      const st = await fs.stat(abs);
+      stamp = `${st.size}:${st.mtimeMs}:${st.ctimeMs}`;
     } catch {
       continue;
     }
-    out[rel] = { sha: shaOf(buf), words: countWords(decodeFileText(buf)), hash: hash(buf.toString('utf8')) };
+    seen.add(abs);
+    const cached = scanCache.get(abs);
+    if (cached?.stamp === stamp) {
+      out[rel] = cached.file;
+      continue;
+    }
+    let buf: Buffer;
+    try {
+      buf = await fs.readFile(abs);
+    } catch {
+      continue;
+    }
+    const file = { sha: shaOf(buf), words: countWords(decodeFileText(buf)), hash: hash(buf.toString('utf8')) };
+    scanCache.set(abs, { stamp, file });
+    out[rel] = file;
+  }
+  // 这个工程里不在了的（删了、搬了）不再占着内存。
+  const root = path.resolve(project.root) + path.sep;
+  for (const key of scanCache.keys()) {
+    if (key.startsWith(root) && !seen.has(key)) {
+      scanCache.delete(key);
+    }
   }
   return out;
 }
@@ -333,10 +364,67 @@ export async function withCheckpointLock<T>(project: NovelProject, fn: () => Pro
 
 // ---------------------------------------------------------------- 读
 
-/** 列出存档点，新的在前。读不懂的清单跳过（记一条 warn），不抛。 */
+/**
+ * 列出存档点，新的在前。读不懂的清单跳过（记一条 warn），不抛。读过的清单记着（{@link manifestCache}）：「版本」侧栏
+ * 每存一次盘就要一次列表。裁旧的、清理对象那两处要知道有没有读不懂的，走 {@link readAll}，不用记着的。
+ */
 export async function listCheckpoints(project: NovelProject): Promise<CheckpointInfo[]> {
-  return (await readAll(project)).list;
+  const dir = pointsDirOf(project);
+  let names: string[];
+  try {
+    names = (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && e.name.endsWith('.json')).map((e) => e.name);
+  } catch {
+    return [];
+  }
+  const list: CheckpointInfo[] = [];
+  const seen = new Set<string>();
+  for (const name of names) {
+    const id = name.slice(0, -'.json'.length);
+    if (parseCheckpointId(id) === undefined) {
+      continue;
+    }
+    const abs = path.join(dir, name);
+    seen.add(abs);
+    let stamp: string;
+    try {
+      const st = await fs.stat(abs);
+      stamp = `${st.size}:${st.mtimeMs}:${st.ctimeMs}`;
+    } catch {
+      continue;
+    }
+    let cached = manifestCache.get(abs);
+    if (cached?.stamp !== stamp) {
+      let manifest: CheckpointManifest | undefined;
+      try {
+        manifest = parseManifest(await fs.readFile(abs, 'utf8'), id);
+      } catch {
+        manifest = undefined;
+      }
+      if (!manifest) {
+        log.warn(`读不懂存档点清单 ${name}，跳过`);
+      }
+      cached = { stamp, manifest };
+      manifestCache.set(abs, cached);
+    }
+    if (cached.manifest) {
+      list.push({ ...cached.manifest, id });
+    }
+  }
+  // 裁掉了的存档点不再占着内存。
+  for (const key of manifestCache.keys()) {
+    if (path.dirname(key) === dir && !seen.has(key)) {
+      manifestCache.delete(key);
+    }
+  }
+  list.sort((a, b) => b.time - a.time || b.id.localeCompare(a.id));
+  return list;
 }
+
+/**
+ * 读过的清单按「文件名 + 大小 + 修改时间 + 状态改变时间」记着：一份清单列着全书每份文件，几十个存档点每次都整份重读重解析不值得。
+ * 写备注改了清单、裁掉了旧的，大小或修改时间变了、名字没了，自然重读。
+ */
+const manifestCache = new Map<string, { stamp: string; manifest: CheckpointManifest | undefined }>();
 
 async function readAll(project: NovelProject): Promise<{ list: CheckpointInfo[]; unreadable: number }> {
   let names: string[];
@@ -436,7 +524,7 @@ export interface CheckpointVersion {
 export async function checkpointVersionsOf(project: NovelProject, rel: string): Promise<CheckpointVersion[]> {
   const out: CheckpointVersion[] = [];
   let prev: string | undefined;
-  for (const cp of (await listCheckpointsCached(project)).slice().reverse()) {
+  for (const cp of (await listCheckpoints(project)).slice().reverse()) {
     const f = cp.files[rel];
     if (f && f.sha !== prev) {
       out.push({ id: cp.id, time: cp.time, note: cp.note, auto: cp.auto, words: f.words, bytes: f.bytes });
@@ -444,61 +532,6 @@ export async function checkpointVersionsOf(project: NovelProject, rel: string): 
     prev = f?.sha;
   }
   return out.reverse();
-}
-
-/**
- * 读过的清单按「文件名 + 大小 + 修改时间」记着：侧栏跟着当前文件走、每次保存之后都要重列，一份清单列着全书每份文件，
- * 几十个存档点每次都整份重读重解析不值得。写备注改了清单、裁掉了旧的，大小或修改时间变了、名字没了，自然重读。
- */
-const manifestCache = new Map<string, { stamp: string; manifest: CheckpointManifest | undefined }>();
-
-async function listCheckpointsCached(project: NovelProject): Promise<CheckpointInfo[]> {
-  const dir = pointsDirOf(project);
-  let names: string[];
-  try {
-    names = (await fs.readdir(dir, { withFileTypes: true })).filter((e) => e.isFile() && e.name.endsWith('.json')).map((e) => e.name);
-  } catch {
-    return [];
-  }
-  const list: CheckpointInfo[] = [];
-  const seen = new Set<string>();
-  for (const name of names) {
-    const id = name.slice(0, -'.json'.length);
-    if (parseCheckpointId(id) === undefined) {
-      continue;
-    }
-    const abs = path.join(dir, name);
-    seen.add(abs);
-    let stamp: string;
-    try {
-      const st = await fs.stat(abs);
-      stamp = `${st.size}:${st.mtimeMs}`;
-    } catch {
-      continue;
-    }
-    let cached = manifestCache.get(abs);
-    if (cached?.stamp !== stamp) {
-      let manifest: CheckpointManifest | undefined;
-      try {
-        manifest = parseManifest(await fs.readFile(abs, 'utf8'), id);
-      } catch {
-        manifest = undefined;
-      }
-      cached = { stamp, manifest };
-      manifestCache.set(abs, cached);
-    }
-    if (cached.manifest) {
-      list.push({ ...cached.manifest, id });
-    }
-  }
-  // 裁掉了的存档点不再占着内存。
-  for (const key of manifestCache.keys()) {
-    if (path.dirname(key) === dir && !seen.has(key)) {
-      manifestCache.delete(key);
-    }
-  }
-  list.sort((a, b) => b.time - a.time || b.id.localeCompare(a.id));
-  return list;
 }
 
 // ---------------------------------------------------------------- 存

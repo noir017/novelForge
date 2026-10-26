@@ -84,7 +84,6 @@ import {
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
 import { listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
 import {
-  compareCheckpointFile,
   pushCheckpointDiff,
   pushCheckpoints,
   restoreCheckpointFor,
@@ -559,7 +558,7 @@ export class ChatController {
         await saveVersion(this, msg.path, msg.quiet === true);
         return;
 
-      // 存档点（controller/checkpoints.ts）：整本书存一版、跟现在比、单份对比、退回。
+      // 存档点（controller/checkpoints.ts）：整本书存一版、跟现在比、退回。
       case 'listCheckpoints':
         await pushCheckpoints(this);
         return;
@@ -571,9 +570,6 @@ export class ChatController {
         return;
       case 'checkpointDiff':
         await pushCheckpointDiff(this, msg.id);
-        return;
-      case 'compareCheckpointFile':
-        await compareCheckpointFile(this, msg.id, msg.path);
         return;
       case 'restoreCheckpoint':
         await restoreCheckpointFor(this, msg.request);

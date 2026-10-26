@@ -7,8 +7,8 @@
  * - **列表**：打开就发 `listCheckpoints`，收 `checkpoints` 画（新的在前）。顶上一格备注 +「存一个存档点」（发
  *   `createCheckpoint`）；自动存的那几行多一颗「留住…」，摊开一格备注发 `noteCheckpoint`（写了备注就不会被自动裁掉）。
  * - **跟现在比**：一行的「跟现在比」发 `checkpointDiff`，收同一个 id 的 `checkpointDiff` 画三组（改过的 / 之后删掉的 /
- *   之后新建的）。「对比」发 `compareCheckpointFile`，只在宿主有合并视图时给——页面上有 `#mergeModal` 才有（只有独立版
- *   的页面放它），能力探测、不判断是哪个壳。「退回这一份」「整本退回」点两下才发 `restoreCheckpoint`：乐观锁是这一次
+ *   之后新建的）。「对比」关掉弹窗、经 `nf-version-diff-command` 在编辑区开「版本」的对比标签，只在内置编辑器回答了
+ *   `nf-version-diff-query` 时给（插件形态没有 editor.js），能力探测、不判断是哪个壳。「退回这一份」「整本退回」点两下才发 `restoreCheckpoint`：乐观锁是这一次
  *   比较里每份的 `hashNow`（当时磁盘上没有的给 `null`），编辑器里没保存的那几份经 `nf-dirty-query` 问内置编辑器
  *   （插件形态没人回答，是空的）。退回之后后端重推 `checkpoints` 与这个存档点的 `checkpointDiff`，停在这一页重画。
  *
@@ -19,7 +19,8 @@
  * 之后到的 `checkpoints` / `checkpointDiff` 不再往这一层上画，× / Esc 也不去藏别人的弹窗。
  */
 import { clear, el as mk, maybeById, setHidden } from '../dom';
-import { queryDirtyPaths } from '../globals';
+import { commandVersionDiff, queryDirtyPaths, queryVersionDiff } from '../globals';
+import { KIND_LABEL } from '../editor/artifactKinds';
 import type {
   CheckpointDiffEntry,
   CheckpointDiffView,
@@ -46,26 +47,6 @@ const GROUPS: ReadonlyArray<[CheckpointFileStatus, string]> = [
   ['deleted', '之后删掉的'],
   ['added', '之后新建的'],
 ];
-
-/**
- * 一份文件是哪一类（后端 `kindOfPath` 给的种类）。路径就在旁边，这里只要一眼分得出是正文还是设定；架构三件（小说配置、
- * 故事前提、世界观）合称「架构」，同「转到…」面板上的标记。
- */
-const KIND_LABEL: Record<CheckpointDiffEntry['kind'], string> = {
-  chapter: '章节',
-  plot: '细纲',
-  character: '角色卡',
-  lore: '设定',
-  draft: '草稿',
-  setting: '架构',
-  outline: '大纲',
-  style: '文风',
-  threads: '叙事线',
-  globalSummary: '全文大纲',
-  skill: '技能',
-  sensitive: '敏感词表',
-  other: '其他',
-};
 
 interface Panel {
   root: HTMLElement;
@@ -146,7 +127,7 @@ function owns(): boolean {
 }
 
 /**
- * 遮罩上的 × 与 Esc（点空白不关，同表单）。合并视图（单份对比）盖在上面时 Esc 不归这里——那一层自己没有 Esc，
+ * 遮罩上的 × 与 Esc（点空白不关，同表单）。合并视图（`#mergeModal`，后端推来的覆盖审阅）盖在上面时 Esc 不归这里——那一层自己没有 Esc，
  * 这一下关掉的会是底下的面板。输入法组字时的 Esc 是输入法的。
  */
 export function installCheckpoints(): void {
@@ -456,7 +437,7 @@ function renderDiff(): void {
 
   const byStatus = (s: CheckpointFileStatus) => d.entries.filter((e) => e.status === s);
   // 宿主有没有合并视图：只有独立版的页面放 `#mergeModal`（插件用不上它，后端也没有 `mergeTexts`）。
-  const canCompare = !!maybeById('mergeModal');
+  const canCompare = queryVersionDiff();
   for (const [status, label] of GROUPS) {
     const files = byStatus(status);
     if (files.length === 0) {
@@ -485,12 +466,15 @@ function buildFile(p: Panel, id: string, entry: CheckpointDiffEntry, canCompare:
   if (entry.status !== 'added') {
     if (canCompare) {
       const compare = secondaryBtn('对比', () => {
-        if (owns()) {
-          vscode.postMessage({ type: 'compareCheckpointFile', id, path: entry.path });
+        const cp = p.entries?.find((c) => c.id === id);
+        if (owns() && cp) {
+          // 关掉弹窗、在编辑区开对比标签：用回一处、恢复整份都只进编辑区，存不存由作者。
+          closeCheckpoints();
+          commandVersionDiff({ path: entry.path, status: entry.status, checkpoint: { id, time: cp.time, note: cp.note, auto: cp.auto } });
         }
       });
       compare.classList.add('cp-compare');
-      compare.title = '存档点里的那一份 ↔ 现在这份，逐段挑；挑好之后直接写盘（被盖掉的这一份先存一版历史）';
+      compare.title = '关掉这里，在编辑区开对比标签：存档点里的那一份 ↔ 现在这份；可以一处一处用回（只进编辑区，不写盘）';
       compare.disabled = p.restoring;
       actions.appendChild(compare);
     }

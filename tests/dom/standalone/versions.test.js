@@ -16,6 +16,10 @@
  * | 跟后一版比 | 两边都是存下的，只能看：没有「用回这一处」「恢复整份」 |
  * | 恢复整份 | 编辑区换成那一版、不写盘，停在那份文件上；开着自动保存时停笔 2 秒照常存，`saveVersion` 排在 `saveFile` 前面 |
  * | 刷新 | 对比标签不进刷新恢复 |
+ * | 全书改动 | 切过来拉存档点列表；缺省跟最近一个**手动**的比（发 `checkpointDiff`），下拉换过就一直是它；按种类分组、改 / 新 / 删、字数差；
+ *   没有存档点给一颗「现在存一个存档点」；显示着时后端推 `state` 停一下再比；标题点了收起 |
+ * | 点全书改动的一份 | 没开着的先 `openEditor`（临时标签），进了编辑区再开对比标签、要存档点里那一份（`cp:`）；删掉的右边是空的、只能看；
+ *   新建的左边是空的 |
  */
 const { describe, test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -53,10 +57,15 @@ function harness(extraShims = [], opts = {}) {
     area,
     btn: () => doc.querySelector('#edToolbar .ed-versions-btn'),
     side: () => doc.getElementById('pane-versions'),
-    rows: () => [...doc.querySelectorAll('#versionsBody .vs-row')],
+    rows: () => [...doc.querySelectorAll('#versionsBody .vs-timeline .vs-row')],
     row: (id) => doc.querySelector(`#versionsBody .vs-row[data-id="${id}"]`),
     unsaved: () => doc.querySelector('#versionsBody .vs-unsaved'),
-    body: () => doc.getElementById('versionsBody').textContent,
+    /** 当前文件那一块的字。 */
+    body: () => doc.querySelector('#versionsBody .vs-timeline').textContent,
+    fileTitle: () => doc.querySelector('#versionsBody .vs-timeline .vs-section-title').textContent,
+    book: () => doc.querySelector('#versionsBody .vs-book'),
+    bookRows: () => [...doc.querySelectorAll('#versionsBody .vs-book .vs-row')],
+    bookRow: (path) => doc.querySelector(`#versionsBody .vs-book .vs-row[data-path="${path}"]`),
     diff: () => doc.querySelector('.vd'),
     diffTab: () => doc.querySelector('.ed-tab-special[data-special="version-diff"]'),
     changes: () => [...doc.querySelectorAll('.vd .vd-change')],
@@ -198,7 +207,7 @@ describe('侧栏「版本」页', { skip: JSDOM_SKIP }, () => {
     assert.equal(h.ui.last('listVersions'), undefined);
     await h.showSide();
     assert.deepEqual({ ...h.ui.last('listVersions') }, { type: 'listVersions', path: PATH });
-    assert.equal(h.doc.getElementById('versionsFile').textContent, PATH.split('/').pop());
+    assert.equal(h.fileTitle(), PATH.split('/').pop());
   });
 
   test('没有存下的版本：照实说，并说明什么时候会存', () => {
@@ -357,7 +366,7 @@ describe('对比标签：点一行就看', { skip: JSDOM_SKIP }, () => {
   });
 
   test('对比标签显示着（那一块没有当前文件）：侧栏留在这份文件上', () => {
-    assert.equal(h.doc.getElementById('versionsFile').textContent, '001-雨夜.md');
+    assert.equal(h.fileTitle(), '001-雨夜.md');
     assert.equal(h.rows().length, 2);
   });
 
@@ -549,5 +558,144 @@ describe('开着自动保存时恢复一版', { skip: JSDOM_SKIP }, () => {
   test('关掉自动保存：那句说明跟着撤掉', () => {
     h.ui.window.dispatchEvent(new h.ui.window.CustomEvent('nf-editor-command', { detail: { name: 'toggleAutoSave' } }));
     assert.doesNotMatch(h.doc.getElementById('versionsFoot').textContent, /自动保存开着/);
+  });
+});
+
+describe('全书改动', { skip: JSDOM_SKIP }, () => {
+  let h;
+  const now = Date.now();
+  const MANUAL = '2026-10-20_22-30-05+0800';
+  const AUTO = '2026-10-21_09-00-00+0800';
+  const cps = [
+    { id: AUTO, time: now - 10 * MIN, note: '批量写章之前（第 4–6 章）', auto: true, files: 20, chapters: 3, chapterWords: 9000, skipped: [] },
+    { id: MANUAL, time: now - 60 * MIN, note: '第一卷写完', auto: false, files: 18, chapters: 3, chapterWords: 8000, skipped: [] },
+  ];
+  const CH2 = 'chapters/002-客栈.md';
+  const CH3 = 'chapters/003-夜访.md';
+  const CH4 = 'chapters/004-渡口.md';
+  const LIN = '.novelforge/characters/林昭.md';
+  const diff = (id) => ({
+    id,
+    unchanged: 10,
+    entries: [
+      { path: CH2, kind: 'chapter', status: 'changed', wordsThen: 100, wordsNow: 120, hashNow: 'h2' },
+      { path: CH3, kind: 'chapter', status: 'deleted', wordsThen: 300 },
+      { path: CH4, kind: 'chapter', status: 'added', wordsNow: 10, hashNow: 'h4' },
+      { path: LIN, kind: 'character', status: 'changed', wordsThen: 50, wordsNow: 40, hashNow: 'hl' },
+    ],
+  });
+
+  before(async () => {
+    h = harness();
+    h.open(PATH, DISK, { hash: 'h-base' });
+    await h.showSide();
+  });
+
+  test('切过来：拉存档点列表；没到之前说载入中', () => {
+    assert.ok(h.ui.last('listCheckpoints'));
+    assert.match(h.book().textContent, /全书改动.*载入中/);
+  });
+
+  test('缺省跟最近一个手动存档点比（自动的更新也不选它），发 checkpointDiff', () => {
+    h.ui.sent.length = 0;
+    h.ui.post({ type: 'checkpoints', entries: cps });
+    assert.deepEqual({ ...h.ui.last('checkpointDiff') }, { type: 'checkpointDiff', id: MANUAL });
+    assert.equal(h.book().querySelector('.vs-base-select').value, MANUAL);
+    assert.match(h.book().textContent, /比着呢/);
+  });
+
+  test('别的存档点的比较不认（存档点弹窗要的）', () => {
+    h.ui.post({ type: 'checkpointDiff', id: AUTO, diff: diff(AUTO) });
+    assert.equal(h.bookRows().length, 0);
+  });
+
+  test('比出来了：按种类分组，改 / 新 / 删、字数差，标题上是份数', () => {
+    h.ui.post({ type: 'checkpointDiff', id: MANUAL, diff: diff(MANUAL) });
+    const groups = [...h.book().querySelectorAll('.vs-group')].map((g) => g.textContent);
+    assert.deepEqual(groups, ['章节 3', '角色卡 1']);
+    assert.equal(h.book().querySelector('.vs-count').textContent, '4');
+    const text = (p) => h.bookRow(p).textContent;
+    assert.equal(text(CH2), '改002-客栈多了 20 字');
+    assert.equal(text(CH3), '删003-夜访之后删掉了 · 原来 300 字');
+    assert.equal(text(CH4), '新004-渡口之后新建的 · 10 字');
+    assert.equal(text(LIN), '改林昭少了 10 字');
+  });
+
+  test('点一份没开着的：先开成临时标签，进了编辑区再开对比标签、要存档点里那一份', async () => {
+    h.ui.sent.length = 0;
+    h.ui.clickEl(h.bookRow(CH2));
+    assert.deepEqual({ ...h.ui.last('openEditor') }, { type: 'openEditor', path: CH2, preview: true });
+    assert.equal(h.diffTab(), null, '文件还没到，先不开');
+    h.ui.post({ type: 'editorOpen', file: file(CH2, '现在的第二章。\n', { kind: 'chapter' }), preview: true });
+    await tick();
+    assert.ok(h.diffTab());
+    assert.equal(h.ui.last('readVersion').id, `cp:${MANUAL}`);
+    await h.answerRead('当时的第二章。\n');
+    const cols = [...h.diff().querySelectorAll('.vd-col')].map((c) => c.textContent);
+    assert.match(cols[0], /存档点「第一卷写完」/);
+    assert.equal(cols[1], '现在');
+    assert.ok(h.changes()[0].querySelector('.vd-revert'), '可以用回');
+    assert.ok(h.bookRow(CH2).classList.contains('selected'));
+  });
+
+  test('之后删掉的：右边是空的，只能看', async () => {
+    h.ui.sent.length = 0;
+    h.ui.clickEl(h.bookRow(CH3));
+    assert.equal(h.ui.last('openEditor'), undefined, '删掉的不去开');
+    await h.answerRead('当时的第三章。\n');
+    const cols = [...h.diff().querySelectorAll('.vd-col')].map((c) => c.textContent);
+    assert.match(cols[1], /现在已经没有这一份了/);
+    assert.equal(h.diff().querySelector('.vd-revert'), null);
+    assert.ok(h.diff().querySelector('.vd-restore').classList.contains('hidden'));
+  });
+
+  test('之后新建的：左边是空的，不要全文', async () => {
+    h.ui.post({ type: 'editorOpen', file: file(CH4, '船来了。\n', { kind: 'chapter' }) });
+    h.ui.sent.length = 0;
+    h.ui.clickEl(h.bookRow(CH4));
+    assert.equal(h.ui.last('readVersion'), undefined);
+    const cols = [...h.diff().querySelectorAll('.vd-col')].map((c) => c.textContent);
+    assert.equal(cols[0], '存档点里还没有这一份');
+    assert.equal(h.changes().length, 1);
+  });
+
+  test('下拉换一个：比它；之后列表重推也还是它', () => {
+    const select = h.book().querySelector('.vs-base-select');
+    select.value = AUTO;
+    select.dispatchEvent(new h.ui.window.Event('change', { bubbles: true }));
+    assert.deepEqual({ ...h.ui.last('checkpointDiff') }, { type: 'checkpointDiff', id: AUTO });
+    h.ui.post({ type: 'checkpoints', entries: cps });
+    assert.equal(h.ui.last('checkpointDiff').id, AUTO);
+    assert.equal(h.book().querySelector('.vs-base-select').value, AUTO);
+  });
+
+  test('挑过的那个被裁掉了：回到缺省（最近一个手动的）', () => {
+    h.ui.post({ type: 'checkpoints', entries: [cps[1]] });
+    assert.equal(h.ui.last('checkpointDiff').id, MANUAL);
+  });
+
+  test('显示着时后端推 state（存盘之后）：停一下再拉一次', async () => {
+    h.ui.sent.length = 0;
+    h.ui.post({ type: 'state', state: viewState() });
+    h.ui.post({ type: 'state', state: viewState() });
+    assert.equal(h.ui.last('listCheckpoints'), undefined, '先攒着');
+    await new Promise((r) => setTimeout(r, 900));
+    assert.equal(h.ui.sent.filter((m) => m.type === 'listCheckpoints').length, 1);
+  });
+
+  test('标题点了收起，再点展开', () => {
+    h.ui.post({ type: 'checkpointDiff', id: MANUAL, diff: diff(MANUAL) });
+    h.ui.clickEl(h.book().querySelector('.vs-section-head'));
+    assert.equal(h.bookRows().length, 0);
+    assert.equal(h.book().querySelector('.vs-section-head').getAttribute('aria-expanded'), 'false');
+    h.ui.clickEl(h.book().querySelector('.vs-section-head'));
+    assert.equal(h.bookRows().length, 4);
+  });
+
+  test('没有存档点：说一句，给一颗「现在存一个存档点」', () => {
+    h.ui.post({ type: 'checkpoints', entries: [] });
+    assert.match(h.book().textContent, /还没有存档点/);
+    h.ui.clickEl(h.book().querySelector('.vs-book-save'));
+    assert.deepEqual({ ...h.ui.last('createCheckpoint') }, { type: 'createCheckpoint', note: '' });
   });
 });

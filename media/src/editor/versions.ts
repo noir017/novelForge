@@ -1,6 +1,16 @@
 /**
- * 侧栏「版本」页（独立版；DOM 在 `shells/shared/panes.ts` 的 `versionsPane`，插件形态不装配）：编辑区当前那份文件的
- * 时间线。点一行，编辑区里马上开对比标签（`versionDiff.ts`），不经预览、不弹窗。
+ * 侧栏「版本」页（独立版；DOM 在 `shells/shared/panes.ts` 的 `versionsPane`，插件形态不装配）：上面「全书改动」，下面编辑区
+ * 当前那份文件的时间线。点一行，编辑区里马上开对比标签（`versionDiff.ts`），不经预览、不弹窗。两块的标题点了收起 / 展开。
+ *
+ * - **全书改动**（像 VS Code 源代码管理的「更改」）：跟一个存档点比，之后全书改过、新建、删掉的文件，按种类分组
+ *   （`artifactKinds.ts`）。缺省跟最近一个**手动**存档点比（自动的批量动作之前都存，太密，比出来常常只剩几份），没有手动的
+ *   就跟最近那一个；下拉换别的，换过就一直是它（它被裁掉了才回到缺省）。数据与存档点弹窗同一对消息：`listCheckpoints` →
+ *   `checkpoints`、`checkpointDiff` → `checkpointDiff`（只认自己那个存档点的；弹窗要的、退回之后后端重推的，是这个就照收）。
+ *   这一页显示着时，后端每推一次 `state`（存盘、批量动作之后都推）停一下再比一次；后端按文件的大小与修改时间记着算过的指纹，
+ *   每次比不必整本重读。点一份：存档点里那一份 ↔ 现在（没开着的先开成临时标签）；之后新建的左边是空的、删掉的右边是空的。
+ *   **退回不在这里**——那是直接写盘的，留在存档点弹窗里；这里只看、只在编辑区里用回。
+ *
+ * 当前文件的时间线：
  *
  * - **一条时间线，新的在前**：最上面「还没保存的改动」（编辑器里那份与磁盘上的不一样时才有，比的是磁盘上的 ↔ 编辑器里的）；
  *   然后是快照（网关在每次覆盖之前存的，`core/workspace/history.ts`）与这份文件在各存档点里的样子（◆ 手动、◇ 自动，带备注；
@@ -15,18 +25,20 @@
  *   这一页，窄屏上顺手把编辑区翻下去。没开文件、没打开工程、还不是小说工程、文件不是工程里的创作产物（`kind` 是 `other`）时
  *   那两处置灰，提示里说为什么——前端不拿路径猜，后端也会再判一次（`versions.unavailable`）。
  * - 「＋」（现在存一版）把**磁盘上当前**那一份存一个快照（不是编辑器里没保存的那份）。
+ * - 存档点弹窗里的「对比」也开在这里的对比标签上（经 `nf-version-diff-query` / `nf-version-diff-command`）。
  */
 import { maybeById, el, setHidden } from '../dom';
 import { onContextMenu, showVersionsTab } from '../globals';
-import type { MenuItem } from '../globals';
-import type { InMessage, OutMessage, VersionView } from '../protocol';
+import type { CheckpointFileDiffCommand, MenuItem } from '../globals';
+import type { CheckpointDiffEntry, CheckpointDiffView, CheckpointView, InMessage, OutMessage, VersionView } from '../protocol';
 import { onMessage } from '../vscodeApi';
 import { activeEditor, onEditorChange } from './api';
 import type { OpenFile, Pane } from './api';
 import { autoSaveEnabled, onPrefsChange } from './paragraphState';
 import { revealEditor, revealSide } from './shell';
 import { paneOwning } from './store';
-import { currentDiff, installVersionDiff, onDiffChange, openDiff, restoreVersion } from './versionDiff';
+import { KIND_LABEL, KIND_ORDER } from './artifactKinds';
+import { currentDiff, installVersionDiff, onDiffChange, openDiff, openFileDiff, restoreVersion } from './versionDiff';
 import type { DiffRequest, VersionRef } from './versionDiff';
 import { countWords } from './words';
 
@@ -34,7 +46,6 @@ type VersionsMessage = Extract<OutMessage, { type: 'versions' }>;
 
 interface Side {
   root: HTMLElement;
-  file: HTMLElement;
   body: HTMLElement;
   foot: HTMLElement;
   save: HTMLButtonElement;
@@ -53,6 +64,26 @@ const buttons = new Map<Pane, HTMLButtonElement>();
 /** 后端说过「还不是小说工程」（`ViewState.initialized === false`）。没收到之前不拦，后端会再判一次。 */
 let notProject = false;
 let renderTimer: ReturnType<typeof setTimeout> | undefined;
+/** 当前文件那一块收起来了。 */
+let fileCollapsed = false;
+
+/** 全书改动：跟哪个存档点比、比出来什么。 */
+const book: {
+  /** undefined = 还没拉过。 */
+  checkpoints?: CheckpointView[];
+  unavailable?: string;
+  /** 跟哪个比。 */
+  base: string | null;
+  /** 作者在下拉里挑过：一直是它，它没了才回到缺省。 */
+  picked: boolean;
+  /** 比的是 `base`；undefined = 比着呢。 */
+  diff?: CheckpointDiffView;
+  error?: string;
+  collapsed: boolean;
+} = { base: null, picked: false, collapsed: false };
+/** 后端推了 `state` 之后停多久再比（连着存几次只比一次）。 */
+const BOOK_REFRESH_MS = 800;
+let bookTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ---------------------------------------------------------------- 纯函数
 
@@ -108,6 +139,23 @@ export function versionLabel(entry: VersionView, now = Date.now()): string {
   }
   const kind = entry.checkpoint.auto ? '自动存档点' : '存档点';
   return entry.checkpoint.note ? `${kind}「${entry.checkpoint.note}」（${when}）` : `${kind}（${when}）`;
+}
+
+/** 一个存档点在对比标签上怎么称呼（同时间线上存档点那几行）。 */
+export function checkpointLabel(cp: Pick<CheckpointView, 'time' | 'note' | 'auto'>, now = Date.now()): string {
+  return versionLabel({ id: '', time: cp.time, words: 0, bytes: 0, checkpoint: { note: cp.note, auto: cp.auto } }, now);
+}
+
+/** 全书改动跟哪个存档点比的缺省：最近一个手动的，没有就最近那一个（`list` 新的在前）。 */
+export function defaultBase(list: readonly Pick<CheckpointView, 'id' | 'auto'>[]): string | null {
+  return (list.find((cp) => !cp.auto) ?? list[0])?.id ?? null;
+}
+
+/** 文件名去掉扩展名（全书改动里那些多半没开着，没有后端给的称呼）。 */
+function baseName(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(0, dot) : name;
 }
 
 // ---------------------------------------------------------------- 侧栏
@@ -170,31 +218,223 @@ function render(): void {
     return;
   }
   const file = targetFile();
-  side.file.textContent = file ? nameOf(file) : '';
-  side.file.title = file?.path ?? '';
   side.foot.textContent = autoSaveEnabled() ? `${NOTE}${AUTOSAVE_NOTE}` : NOTE;
   setHidden(side.foot, !file || !!unavailable);
   side.save.disabled = !file || !!unavailable;
-  side.refresh.disabled = !file;
-  side.body.replaceChildren();
-  if (!file) {
-    side.body.appendChild(el('p', 'vs-empty', '没有打开的文件。在编辑区打开一份稿子，这里列出它存下的各版。'));
+  side.body.replaceChildren(bookSection(), fileSection(file));
+}
+
+/** 一块的标题：点了收起 / 展开。 */
+function sectionHead(title: string, count: string, collapsed: boolean, toggle: () => void, tip = ''): HTMLElement {
+  const head = el('button', 'vs-section-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(!collapsed));
+  head.appendChild(el('span', 'vs-caret', collapsed ? '▸' : '▾'));
+  head.appendChild(el('span', 'vs-section-title', title));
+  if (count) {
+    head.appendChild(el('span', 'vs-count', count));
+  }
+  head.title = tip || title;
+  head.addEventListener('click', () => {
+    toggle();
+    render();
+  });
+  return head;
+}
+
+// ---------------------------------------------------------------- 全书改动
+
+function bookSection(): HTMLElement {
+  const box = el('section', 'vs-section vs-book');
+  const count = book.diff ? String(book.diff.entries.length) : '';
+  box.appendChild(
+    sectionHead('全书改动', count, book.collapsed, () => (book.collapsed = !book.collapsed), '跟一个存档点比，之后全书改过、新建、删掉的文件')
+  );
+  if (book.collapsed) {
+    return box;
+  }
+  if (book.unavailable) {
+    box.appendChild(el('p', 'vs-empty', book.unavailable));
+    return box;
+  }
+  if (!book.checkpoints) {
+    box.appendChild(el('p', 'vs-empty', '载入中…'));
+    return box;
+  }
+  if (book.checkpoints.length === 0) {
+    box.appendChild(el('p', 'vs-empty', '还没有存档点。存一个之后，这里列出它之后全书改过的文件。'));
+    const save = el('button', 'chip-btn vs-book-save', '现在存一个存档点');
+    save.type = 'button';
+    save.addEventListener('click', () => post({ type: 'createCheckpoint', note: '' }));
+    box.appendChild(save);
+    return box;
+  }
+  box.appendChild(baseRow(book.checkpoints));
+  if (book.error) {
+    box.appendChild(el('p', 'vs-empty error', book.error));
+    return box;
+  }
+  if (!book.diff) {
+    box.appendChild(el('p', 'vs-empty', '比着呢…'));
+    return box;
+  }
+  if (book.diff.entries.length === 0) {
+    box.appendChild(el('p', 'vs-empty', '跟这个存档点比，全书一字没动。'));
+    return box;
+  }
+  const cp = book.checkpoints.find((c) => c.id === book.base);
+  const shown = currentDiff();
+  for (const kind of KIND_ORDER) {
+    const group = book.diff.entries.filter((e) => e.kind === kind);
+    if (group.length === 0) {
+      continue;
+    }
+    box.appendChild(el('div', 'vs-group', `${KIND_LABEL[kind]} ${group.length}`));
+    for (const entry of group) {
+      box.appendChild(bookRow(entry, cp, shown));
+    }
+  }
+  return box;
+}
+
+/** 「跟 [下拉] 比」：新的在前，◆ 手动、◇ 自动。 */
+function baseRow(list: CheckpointView[]): HTMLElement {
+  const row = el('label', 'vs-base');
+  row.appendChild(el('span', undefined, '跟'));
+  const select = el('select', 'vs-base-select');
+  const now = Date.now();
+  for (const cp of list) {
+    const text = `${cp.auto ? '◇' : '◆'} ${cp.note || (cp.auto ? '自动存档点' : '存档点')} · ${describeWhen(cp.time, now)}`;
+    const option = el('option', undefined, text);
+    option.value = cp.id;
+    option.selected = cp.id === book.base;
+    select.appendChild(option);
+  }
+  select.addEventListener('change', () => {
+    book.base = select.value;
+    book.picked = true;
+    book.diff = undefined;
+    book.error = undefined;
+    post({ type: 'checkpointDiff', id: select.value });
+    render();
+  });
+  row.append(select, el('span', undefined, '比'));
+  return row;
+}
+
+const STATUS_MARK: Record<CheckpointDiffEntry['status'], string> = { changed: '改', added: '新', deleted: '删' };
+
+function bookRow(entry: CheckpointDiffEntry, cp: CheckpointView | undefined, shown: DiffRequest | undefined): HTMLElement {
+  const item = el('button', `vs-row vs-change vs-${entry.status}`);
+  item.type = 'button';
+  item.dataset.path = entry.path;
+  const left = cp && entry.status !== 'added' ? { id: `cp:${cp.id}`, label: checkpointLabel(cp) } : ('empty' as const);
+  const right = entry.status === 'deleted' ? ('empty' as const) : ('now' as const);
+  const selected =
+    shown?.path === entry.path && (typeof shown.left === 'string' ? shown.left === left : typeof left !== 'string' && shown.left.id === left.id);
+  item.classList.toggle('selected', !!selected);
+  const line = el('span', 'vs-when');
+  line.append(el('span', 'vs-status', STATUS_MARK[entry.status]), document.createTextNode(baseName(entry.path)));
+  item.appendChild(line);
+  item.appendChild(el('span', 'vs-meta', bookMeta(entry)));
+  item.title = entry.path;
+  item.addEventListener('click', () => {
+    openFileDiff({ path: entry.path, name: baseName(entry.path), left, right });
+    revealEditor();
+  });
+  return item;
+}
+
+function bookMeta(entry: CheckpointDiffEntry): string {
+  if (entry.status === 'added') {
+    return `之后新建的 · ${entry.wordsNow ?? 0} 字`;
+  }
+  if (entry.status === 'deleted') {
+    return `之后删掉了 · 原来 ${entry.wordsThen ?? 0} 字`;
+  }
+  const delta = (entry.wordsNow ?? 0) - (entry.wordsThen ?? 0);
+  return delta === 0 ? '字数没变' : delta > 0 ? `多了 ${delta} 字` : `少了 ${-delta} 字`;
+}
+
+/** 拉存档点列表（列表到了再比）。藏着不拉。 */
+function refreshBook(): void {
+  clearTimeout(bookTimer);
+  if (visible()) {
+    post({ type: 'listCheckpoints' });
+  }
+}
+
+function onCheckpoints(msg: Extract<OutMessage, { type: 'checkpoints' }>): void {
+  book.checkpoints = msg.entries;
+  book.unavailable = msg.unavailable;
+  const keep = book.picked && msg.entries.some((cp) => cp.id === book.base);
+  const base = keep ? book.base : defaultBase(msg.entries);
+  if (!keep) {
+    book.picked = false;
+  }
+  if (base !== book.base) {
+    book.base = base;
+    book.diff = undefined;
+    book.error = undefined;
+  }
+  if (base && visible()) {
+    post({ type: 'checkpointDiff', id: base });
+  }
+  if (!base) {
+    book.diff = undefined;
+  }
+  render();
+}
+
+function onCheckpointDiff(msg: Extract<OutMessage, { type: 'checkpointDiff' }>): void {
+  if (msg.id !== book.base) {
     return;
   }
+  book.diff = msg.diff;
+  book.error = msg.diff ? undefined : (msg.error ?? '没比出来。');
+  render();
+}
+
+/** 存档点弹窗里「对比」一份：开在对比标签上。 */
+function openCheckpointFile(cmd: CheckpointFileDiffCommand): void {
+  const label = checkpointLabel(cmd.checkpoint);
+  openFileDiff({
+    path: cmd.path,
+    name: baseName(cmd.path),
+    left: cmd.status === 'added' ? 'empty' : { id: `cp:${cmd.checkpoint.id}`, label },
+    right: cmd.status === 'deleted' ? 'empty' : 'now',
+  });
+  revealEditor();
+}
+
+// ---------------------------------------------------------------- 当前文件
+
+function fileSection(file: OpenFile | undefined): HTMLElement {
+  const box = el('section', 'vs-section vs-timeline');
+  const head = sectionHead(file ? nameOf(file) : '当前文件', '', fileCollapsed, () => (fileCollapsed = !fileCollapsed), file?.path);
+  head.classList.add('vs-file');
+  box.appendChild(head);
+  if (fileCollapsed) {
+    return box;
+  }
+  if (!file) {
+    box.appendChild(el('p', 'vs-empty', '没有打开的文件。在编辑区打开一份稿子，这里列出它存下的各版。'));
+    return box;
+  }
   if (unavailable) {
-    side.body.appendChild(el('p', 'vs-empty', unavailable));
-    return;
+    box.appendChild(el('p', 'vs-empty', unavailable));
+    return box;
   }
   const shown = currentDiff();
   if (file.draft !== file.text) {
-    side.body.appendChild(unsavedRow(file, shown));
+    box.appendChild(unsavedRow(file, shown));
   }
   if (!entries) {
-    side.body.appendChild(el('p', 'vs-empty', '载入中…'));
-    return;
+    box.appendChild(el('p', 'vs-empty', '载入中…'));
+    return box;
   }
   if (entries.length === 0) {
-    side.body.appendChild(
+    box.appendChild(
       el(
         'p',
         'vs-empty',
@@ -202,11 +442,12 @@ function render(): void {
           '也可以点上面的「＋」把磁盘上现在这一份先存下来。存档点里有它的话，也列在这里。'
       )
     );
-    return;
+    return box;
   }
   const current = countWords(file.draft);
   const now = Date.now();
-  entries.forEach((entry, i) => side!.body.appendChild(row(file, entry, i, current, now, shown)));
+  entries.forEach((entry, i) => box.appendChild(row(file, entry, i, current, now, shown)));
+  return box;
 }
 
 function unsavedRow(file: OpenFile, shown: DiffRequest | undefined): HTMLElement {
@@ -351,7 +592,6 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
   if (root) {
     side = {
       root,
-      file: maybeById('versionsFile')!,
       body: maybeById('versionsBody')!,
       foot: maybeById('versionsFoot')!,
       save: maybeById('versionsSave') as HTMLButtonElement,
@@ -362,11 +602,15 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
         post({ type: 'saveVersion', path: target });
       }
     });
-    side.refresh.addEventListener('click', () => load());
+    side.refresh.addEventListener('click', () => {
+      load();
+      refreshBook();
+    });
     // 切到这一页（活动栏、工具栏「历史」）：拉一次——藏着时换过文件、保存过，存档点也可能刚存过。
     new MutationObserver(() => {
       if (visible()) {
         load();
+        refreshBook();
       }
     }).observe(root, { attributes: true, attributeFilter: ['class'] });
     render();
@@ -393,7 +637,16 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
   onMessage((msg) => {
     if (msg.type === 'versions') {
       onVersions(msg);
+    } else if (msg.type === 'checkpoints') {
+      onCheckpoints(msg);
+    } else if (msg.type === 'checkpointDiff') {
+      onCheckpointDiff(msg);
     } else if (msg.type === 'init' || msg.type === 'state') {
+      // 磁盘上可能变过（存盘、批量动作、退回）：显示着就停一下再比一次全书。
+      if (visible()) {
+        clearTimeout(bookTimer);
+        bookTimer = setTimeout(refreshBook, BOOK_REFRESH_MS);
+      }
       const was = notProject;
       notProject = msg.state.initialized === false;
       if (was !== notProject) {
@@ -425,11 +678,19 @@ export function installVersions(postMessage: (msg: InMessage) => void): void {
     }
   });
 
+  // 存档点弹窗里的「对比」：只有这里画得了对比标签（插件形态没有 editor.js，没人回答，按钮就不给）。
+  window.addEventListener('nf-version-diff-query', (e) => {
+    e.detail.available = true;
+  });
+  window.addEventListener('nf-version-diff-command', (e) => openCheckpointFile(e.detail));
+
   window.addEventListener('nf-workspace-reset', () => {
     target = null;
     targetHash = null;
     entries = undefined;
     unavailable = undefined;
+    clearTimeout(bookTimer);
+    Object.assign(book, { checkpoints: undefined, unavailable: undefined, base: null, picked: false, diff: undefined, error: undefined });
     render();
   });
 }
