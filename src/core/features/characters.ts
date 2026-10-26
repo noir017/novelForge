@@ -1,3 +1,14 @@
+/**
+ * 从选定的几段正文批量提取 / 更新角色卡（缺省勾最近几章，随上下文详细度）。
+ *
+ * - 模型给的名字是剧作称谓的（「反派（别名：韩厉）」）换成真名、称谓挪进 tags，没有真名的不建卡。
+ * - 同一批先 `mergeWithinBatch` 再和已有的卡比：同名的并成一条；别名是同批另一条正式名的只去掉那个别名、
+ *   两人都留（同章共现即两人，第 14 条）。
+ * - 按人物、按小标题写 1 次，转写那一档照抄成数组 1 次（`TRANSCRIBED_CALLS`，解码是 `parseCharacterResponse`）；
+ *   转写没成同解析不出来。
+ *
+ * 系统提示词在 charactersPrompt.ts。
+ */
 import { getHost, plainVerdict } from '../host';
 import { collectText } from '../llm/collect';
 import { StreamOptions } from '../llm/provider';

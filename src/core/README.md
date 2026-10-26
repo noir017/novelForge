@@ -4,18 +4,18 @@
 
 | 目录 | 职责 |
 |---|---|
-| [model/](model/README.md) | 数据层：数据结构、Markdown 解析、`NovelProject` 的**领域查询**（列表、读取、路径推导、缓存）、服务商配置模型、会话存储。写盘全在 `workspace/` |
-| [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**：`list` / `read` / `write` / `edit` / `move` / `remove` / `search`。路径 → 种类 → 八条守卫 → 解析/渲染/记账/伴生。**新代码不许绕过 `guard.ts` 直接 `fs.writeFile`** |
+| [model/](model/README.md) | 数据层：数据结构、Markdown 解析、`NovelProject` 的领域查询、服务商配置、会话存储；写盘全在 `workspace/`。 |
+| [workspace/](workspace/README.md) | ★ **工程的唯一读写网关**（`list` / `read` / `write` / `edit` / `move` / `remove` / `search`）；新代码不许绕过 `guard.ts` 直接写盘。 |
 | [context/](context/README.md) | ★ 上下文装配：token 粗估与分层预算装配器 |
-| [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` **无状态**地装配 → 调模型 → 解析成 `Draft`（收 signal，不管并发）、`accept.ts` 八条落盘分派、`drafts.ts` 让还没落盘的产物活过一次刷新（`write draftId=…` 认它）。**`cleanOutput` 只对正文层做**，落盘时拿气泡里当下的文本重新解析——那一问在产出的当下就问了（`controller/gate.ts` 的卡片），不是气泡末尾一颗可以永远不点的按钮 |
-| [tools/](tools/README.md) | ★ **工具层**：契约（`ToolDef` / `ToolInvoker`）、schema 校验、注册表（执行 + 兜异常 + 记日志），以及 `novel/` 那十二个工具（读三件 + `generate` + `write` / `edit` + 六个工程动作：`pipeline` / `summary` / `characters` / `extract` / `book` / `skills`），**没有删除/改名/移动**；写入走的是与产物落盘同一条 `workspace.write`，没有新的保护代码。**不认识 `mcp/` 与 `controller/`** |
-| [mcp/](mcp/README.md) | ★ **把工具端给外部 agent**：MCP 协议与 Streamable HTTP 传输（独立版挂在 `/mcp`）。只认 `tools/` 的契约，执行端在 `controller/mcp.ts`。多步调度交给外部 agent，本项目不自带循环 |
-| [features/](features/README.md) | 功能编排：批量流水线（补齐架构 / 批量拆细纲 / 批量写章）、定稿（照正文更新细纲与「设定」一节 + 角色当前状态）、一致性预检、全文大纲、角色卡、设定名录（记设定、建条目、整合、按目录整理）、文风提取。续写链在 `generation/` |
-| [skills/](skills/README.md) | 写作技能（移植自 AI-Novel-Writer 的阶段 Skill）：三个来源（内置 / `~/.novelforge/skills/` / 工程的 `.novelforge/skills/`）、从 GitHub 先检查再安装、卸载进回收站、工程的阶段绑定（`.novelforge/skills.json`）。装配器的 `skill` 层只问它一句「这个阶段绑了什么」 |
+| [generation/](generation/README.md) | ★ 创作的一次单步：`generate.ts` 无状态地装配 → 调模型 → `Draft`，`accept.ts` 落盘分派，`drafts.ts` 让没落盘的产物活过刷新。 |
+| [tools/](tools/README.md) | ★ **工具层**：契约、schema 校验、注册表与 `novel/` 的工具；没有删除 / 改名 / 移动。 |
+| [mcp/](mcp/README.md) | ★ **把工具端给外部 agent**：MCP 协议与 Streamable HTTP，执行端在 `controller/mcp.ts`；本项目不自带循环。 |
+| [features/](features/README.md) | 功能编排：批量流水线、定稿、叙事线、预检、全文大纲、角色卡、设定名录、文风、拆书。 |
+| [skills/](skills/README.md) | 写作技能：三个来源、从 GitHub 先检查再安装、阶段绑定（`.novelforge/skills.json`）。 |
 | [llm/](llm/README.md) | 模型接入：`LlmProvider` 接口、OpenAI / Anthropic 协议实现、provider 注册表 |
-| [files/](files/) | ★ 工程文件能力的**交互流程**：三区界限判断、弹输入框、拼 toast 文案，以及资源管理器目录列举与 `@` 引用候选。落盘一律转调 `workspace/`——不越界、不静默覆盖、删除搬进 `.trash/` 那几条守卫在网关里做一次。 |
-| [views/](views/README.md) | ★ 只读聚合与界面快照：工程树、单章流水线、创作工作区卡与出场人物索引。只从磁盘取数，不写盘。`views/pipeline.ts` 是 I/O 聚合器；`model/pipeline.ts` 仍是纯领域模型与状态机，不迁入 `views/`。 |
-| [runtime/](runtime/README.md) | ★ 宿主无关的运行时设施：日志、SQLite 痕迹库、失败记录、长任务登记与有界并发。`logger.ts` 保持零依赖；日志持久化由 `db.ts` 订阅 logger sink，依赖方向不可反转。 |
+| [files/](files/) | ★ 工程文件能力的交互流程（三区界限、输入框、提示文案、目录列举与 `@` 候选），落盘一律转调 `workspace/`。 |
+| [views/](views/README.md) | ★ 只读聚合与界面快照，只从磁盘取数、不写盘；`model/pipeline.ts` 是纯状态机，不迁入 `views/`。 |
+| [runtime/](runtime/README.md) | ★ 运行时设施：日志、SQLite 痕迹库、失败记录、长任务、有界并发；`logger.ts` 零依赖，依赖方向不可反转。 |
 
 依赖方向自上而下：`features/` / `generation/` → `context/` / `llm/` → `skills/` → `workspace/` → `model/`，反向不允许（`skills/` 只 `import type` 网关，写绑定时由调用方把 `Workspace` 交进来）。`tools/` 坐在最上面（它调 `generation/`、`workspace/` 与 `features/`），**不认识 `controller/`**——反过来会成环。
 
@@ -25,10 +25,10 @@
 
 | 文件 | 职责 |
 |---|---|
-| [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`）。对外入口仍是 `core/protocol`。插件 webview 与独立版网页共用，是前后端的唯一契约。按需要的几对消息（「转到…」的索引、名词表、全书查找、叙事线总览的矩阵、时间线总览）各有一份类型文件（`quickOpen.ts` / `nameIndex.ts` / `bookFind.ts` / `threadsOverview.ts` / `timelineOverview.ts`），都带 `requestId`、不进 `ViewState`。 |
-| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 `generation/` / 会话存储 / 创作目标切换 / 设置读写 → 广播 `OutMessage`。**并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）——生成那一层是无状态的，「有没有在跑」是调度的事，单步与 MCP 调用共用同一把锁。通过 `ViewHost` 接口与视图宿主解耦，支持多宿主同时挂接。构造时订阅日志与任务表，把两者实时推给所有前端。**动手前那一句问也在这一层**（`gate.ts`：产物落盘、外部 agent 的 `always` 动作）：画成对话里的一张卡片而不是全局模态框，还没答的记在 controller 上，重连时随全量状态重推。五期起写一章之前的一致性预检也借这张卡问（「仅本次忽略，照写 / 先不写」，零调用）；审稿那一轮不问落盘，报告挂在这一轮上随会话保存，`reviseChapter` 按那份报告与磁盘上此刻的正文拼清单再发一轮修稿，`revealQuote` 按宿主能力定位引文。工程页设定右键「展开…」（`expandLore`，完善设定 2026-10-19）照「重写…」那条路：先问一句要求（留空就照已排的细纲去想，取消什么都不做），再弹确认框报次数、挑这一次的模型与详细度（模型缺省会话选定的那个；换了就只这一轮用它——`generate()` 没传 `provider` 时认 `pinnedModel`），把对话页目标换成这一条设定、发一轮生成；只给了名字的问完再在分类目录下建空条目（名字被已有条目占了就展开那一条，是人名就报错退出）。落盘卡片上「还没定的：……」那几行只在卡片上（`SerializedArtifact.questions`），不写进文件。`/落定设定`（完善设定二期）在哪一层都能下：`send` 这一轮临时把目标换成设定目录（`LORE_SETTLE_TARGET`）、用户轮上记 `settleLore`，跑完（写了、没写、出错、被停）回到原来的目标、阶段与能力——期间作者自己另选了目标就不动；`retry` 照 `settleLore` 换过去再回来；一句都没聊过、输入框也空着就不调模型。`/续写大纲`（2026-10-24）同一个路子：用户轮上记 `continueOutline`，在别的层下的跑完回到原来的地方（两种跨层命令共用 `awayOf` / `returnTo`）；前端不知道大纲排到第几章、不带区间，`send` 按 `outlineContinuation` 现算一段记在用户轮上（主按钮带着状态机算好的区间来，照用），排到最后一章、要续的那一段里已经有正文就提示一句、不调模型。卡片落在「设定名录」上，「会新建 / 会更新」两行按磁盘认（`generation/loreSettle.ts`）。内置编辑器的写作体检在 `check.ts`：`pushState` 每跑一次现算体检词表（`views/checkTerms.ts`），变了才推 `checkTerms`、只给有 `openInEditor` 的宿主推，`editSensitiveWords` 没有敏感词表就经网关新建模板再打开（不调模型）。全书查找替换在 `bookFind.ts`：`bookFind`（查找 / 预览，`views/bookFind.ts`，只读）回 `bookFindResult`，`cancelBookFind` **按请求**叫停（几个窗口共用一个 controller，不能「新的顶掉同一个 controller 上的上一次」），`bookReplace`（`features/bookReplace.ts`，经网关逐份写）回 `bookReplaceDone` 之后 `pushState`——编辑器据此核对已开的标签；同一个 controller 上同一时刻只有一次替换，出错也回话。工程页「存档点…」在 `checkpoints.ts`：列、存、写备注、跟现在比、单份对比（`mergeTexts`，挑好的经网关直接写盘，带打开对比时的乐观锁）、退回（`features/checkpoint.ts` 编排；`busy` 或有任务在跑就拒绝），退回之后 `pushState` 并重推列表与比较。 |
+| [protocol/](protocol/index.ts) | 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`），前后端的唯一契约。 |
+| [controller/](controller/index.ts) | ★ `ChatController`：全部面板逻辑，按消息域拆在同目录模块里；并发锁与动手前那一问都在这一层。 |
 | [host.ts](host.ts) | core 对宿主的唯一依赖面（窄接口）：弹窗/选择/进度/文件监听/打开文件等，两个壳各实现一份。 |
-| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、直接建一个发布章节文件），命令面板与网页共用。新建只落一个纯序号名的空细纲（标题等细纲排完再改名定），与上一章放在同一个子目录（`plotPathForNewChapter`：分卷的书写到第二卷就落在 `summaries/第二卷/`），**不问标题也不打开它**；章号取细纲与 `chapters/` 两边的最大号 +1，所以老工程的 99 章之后建出来的就是第 100 章。「建完去哪」由调用方决定，面板走 `selectPlot` 落到这一章的当前步骤。正常路径上的章节是写正文时生成的，`newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」：它**先问章节名称**（留空是纯序号名），正文建出来的同时在镜像位置建一份空细纲；这一章已经排好了细纲的，名字预填它的标题、正文落进它的子目录，不另建一份（2026-10-23 作者定的）；建完只有工程页「章节」空着时那颗「新建第 1 章」（`open`）才打开它。`createBookAt`（独立版欢迎页「新建一本书」「导入写好的书」，2026-10-24）在一个目录下建一个以书名命名的文件夹（`model/bookDir.ts` 的 `bookDirName`，表单预览同一个名字）并初始化，同名文件夹空着就用、有东西或已是一本书就报错；不打开它，开在哪个窗口是壳的事。 |
+| [actions.ts](actions.ts) | 工程级交互流程（初始化、新建一章、粘进现成的一章、新建一本书），命令面板与网页共用。 |
 | [config.ts](config.ts) | `readConfig` / `readBudgetFallback` / `updateSettings`，数据源由宿主注入的 `ConfigStore` 提供。 |
 | [stores.ts](stores.ts) | 文件后端的配置/密钥存储（`~/.novelforge/`），双壳共用。环境变量 `NOVELFORGE_HOME` 能把它挪走：Android 壳的家目录是放书的公共目录，密钥指回 app 私有目录。 |
 

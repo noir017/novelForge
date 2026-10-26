@@ -1,3 +1,17 @@
+/**
+ * `NovelProject`：数据访问层，只读——写盘全在 `core/workspace/`（第 7 条）。
+ *
+ * - 新工程的脚手架：`scaffold` 建固定目录、`createManifest` 写 manifest（按设计不走网关）；空模板的落点与内容
+ *   `newProjectTemplates` 是纯数据，写模板经网关的 `Workspace.initializeProject`。不放示例角色卡。
+ * - 章节索引（manifest v1）、架构的读取（`readBookConfig` / `readSettingDoc` / `settingFilled`）。
+ * - 细纲按路径配对（第 8 条）：`listPlots` 递归扫 `summaries/`；`plotPathForChapter` / `plotMirrorOf` 算正文的镜像、
+ *   `chapterPathForPlot` 反推；`plotOfChapter` / `plotFor` / `getPlot` 有正文只认镜像那一份、没有正文按章号认计划，
+ *   `resolvePlot` 不冒认别的正文的细纲。新一章落点 `subdirForNewChapter` / `plotPathOfNo`：跟上一章同一个子目录，
+ *   接在最后、又有一卷还空着时落进那一卷；分卷 `listVolumes` 是章节根下的一级目录。
+ * - 定稿的查询：`finalizedPlotOf`（`sourceHash` 对得上正文才算），`staleChapters` / `finalizedFacts` 都从它取。
+ * - 草稿按章节路径镜像、`nextPlotNo` / `nextChapterNo`、`.novel` → `.novelforge` 迁移检测、各区目录的递归扫描，
+ *   以及回收站落点 `trashPathFor`（保留原相对路径、同名加序号，第 6 条；放在这一层是因为 `model/` 不能依赖网关）。
+ */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { readConfig } from '../config';

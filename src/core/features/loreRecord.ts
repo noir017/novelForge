@@ -1,3 +1,11 @@
+/**
+ * 记设定：
+ *
+ * - 定稿第一步顺手记进细纲「设定」一节：`loreHint` 给本书的分类表与这一章提到的已有设定，`checkLore` 写盘前校验
+ *   （名字逐字在正文里、人名不算、已有条目换成标题与目录、说明找不到依据就清空）。
+ * - 作者点的单独记一章 / 补记 `recordLore`：只对定稿过、正文没再改过的章，串行，只换「设定」一节，走 `loreScan` 档；
+ *   按「## 设定」一条一行写、转写成 `{"设定":[…]}`，每章 2 次；转写没成「设定」一节不动、挂黄 ❗。
+ */
 import { readConfig } from '../config';
 import { clearFailures, recordFailure } from '../runtime/errorLog';
 import { estimateTokens, takeHead } from '../context/tokenizer';

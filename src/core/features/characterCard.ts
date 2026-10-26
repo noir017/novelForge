@@ -1,3 +1,9 @@
+/**
+ * **单个角色**的档案更新编排。每批模型按十个小标题写档案、转写那一档照抄成 JSON（每批 2 次，最多 3 次，
+ * `transcribedCalls`）；转写没成跳过这一批。建卡 `createCastCards` 交回实际调了几次。
+ *
+ * 解析在 characterCardParse.ts，控篇幅的提示词在 characterCardPrompt.ts（字数上限是第 15 条的锚点）。
+ */
 import { appearancesOf, buildCastIndex, cardLookup, CastMember, describePlots } from '../views/cast';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
