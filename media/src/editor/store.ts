@@ -260,6 +260,35 @@ export function refreshOtherTabs(except: Pane): void {
   }
 }
 
+// ---------------------------------------------------------------- 关掉之后的光标与滚动
+
+/**
+ * 关掉的（含被换掉的临时标签、搬去另一块的）文件最后的光标与滚动：这一页里再打开它时放回去，不从顶上重新找。
+ * 单击浏览章节时临时标签一直在被换掉，回到看过的那一章应该还在原处。按路径记、两块共用，不进 localStorage。
+ */
+export interface FileView {
+  caret: number;
+  scrollTop: number;
+}
+
+const VIEW_LIMIT = 100;
+const closedViews = new Map<string, FileView>();
+
+export function rememberView(path: string, view: FileView): void {
+  closedViews.delete(path);
+  closedViews.set(path, view);
+  if (closedViews.size > VIEW_LIMIT) {
+    closedViews.delete(closedViews.keys().next().value!);
+  }
+}
+
+/** 取走这份文件关掉时记下的光标与滚动（取一次就没了：开着时由 `OpenFile` 自己记）。 */
+export function takeView(path: string): FileView | undefined {
+  const view = closedViews.get(path);
+  closedViews.delete(path);
+  return view;
+}
+
 // ---------------------------------------------------------------- 最近关闭
 
 /** 最近关掉的标签，**按块记**（最新的在最后）。只记作者亲手关的（关标签、关闭其它……），搬家、换掉临时标签不算。 */
