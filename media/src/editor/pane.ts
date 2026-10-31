@@ -240,8 +240,8 @@ export function createPane(
 
   /** 标签条：横着滚、当前那个滚进视野、末尾的「▾」（`tabStrip.ts`）。 */
   const strip = createTabStrip(el.tabs);
-  // 窄屏上「▾」后面再挂「保存」「⋯」，工具栏那一行收起（narrowTools.ts）。
-  installNarrowTools(el);
+  // 窄屏上「▾」后面再挂「↶」「↷」「保存」「⋯」，工具栏那一行收起（narrowTools.ts）。
+  installNarrowTools(el, pane);
 
   /** 每份文件在标签上怎么写：两块编辑区开着的放在一起比，同名的加区分目录。 */
   function currentNames(): Map<string, TabName> {

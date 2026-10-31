@@ -28,11 +28,18 @@
  *
  * 触摸长按的 callout 是另一路，JS 管不着，在 CSS 里用
  * `-webkit-touch-callout: none` 关掉（见 css/view/base.css）。
+ *
+ * **例外：手指长按在能打字的框里（正文区、输入框）不接管**，交给系统的选字菜单：我们的菜单弹在手指底下，正好盖住
+ * 刚选中的字和选区两头的把手（手机上实测），系统那一条贴在选区上方、不挡把手，粘贴也不用另外要剪贴板权限。
+ * 鼠标右键照旧是我们的菜单。
  */
 import { el as mk } from '../dom';
 import type { ContextMenuRegistrar, MenuContext, MenuItem } from '../globals';
 import { isTouchEvent, trackPointer } from '../touch';
 import { placeAtPoint, visibleArea } from './menuPlace';
+
+/** 能打字的框：手指长按在这里面走系统的选字菜单。 */
+const EDITABLE = 'textarea, input, [contenteditable="true"], [contenteditable=""]';
 
 /** 当前打开的菜单（同时只允许一个）。`btn` 有值即为 ⋯ 菜单。 */
 let openMenu: { btn: HTMLElement | null; menu: HTMLElement } | null = null;
@@ -226,6 +233,11 @@ export function installMenus(fallback: () => MenuItem[]): void {
   window.addEventListener(
     'contextmenu',
     (e) => {
+      if (isTouchEvent(e) && e.target instanceof Element && e.target.closest(EDITABLE)) {
+        // 手指长按在能打字的框里：系统的选字菜单（见文件头）。开着的菜单照常收。
+        closeMenu();
+        return;
+      }
       e.preventDefault();
       openAt(e);
     },

@@ -53,6 +53,11 @@
     user-select: text;
   }
 
+  /* 能打字的框里长按走系统的选字菜单（view/menu.ts）：整页关掉的 callout 在这里还给它（iOS 认这一条）。 */
+  body.workbench :is(input, textarea, [contenteditable]) {
+    -webkit-touch-callout: default;
+  }
+
   /* 手指点过的页签留着悬停的底色（手机浏览器把 :hover 粘在最后点的那一下上），像是还按着。 */
   .tab:hover {
     background: none;

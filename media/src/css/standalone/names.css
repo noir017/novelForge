@@ -224,3 +224,12 @@
   padding-top: 3px;
   border-top: 1px solid var(--vscode-panel-border);
 }
+
+/* 手指点出来的浮窗底下有一颗「打开角色卡 / 设定条目」（nameMarks.ts）：整只浮窗接住手指，不再透到底下的正文。 */
+.nm-tip.nm-touch {
+  pointer-events: auto;
+}
+
+.nm-open {
+  margin-top: 6px;
+}

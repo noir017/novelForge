@@ -92,8 +92,10 @@ describe('触屏与窄屏：样式', { skip: JSDOM_SKIP }, () => {
     assert.match(short, /--nf-nav-height:\s*0px/);
   });
 
-  test('窄屏 + 软键盘弹着（kb-open）：底栏让出来、编辑区落到底；打字时章节条、对话页的流水线条也让出来', () => {
+  test('窄屏 + 软键盘弹着（kb-open）：底栏让出来、编辑区落到底；在正文里打字时标题栏、章节条也让出来，编辑区顶到最上面；对话页让出流水线条', () => {
     assert.match(narrow, /body\.kb-open\s*\{[^}]*--nf-nav-height:\s*0px/);
+    assert.match(narrow, /body\.kb-open:has\(\.ed-area:focus\)\s*\{[^}]*--nf-title-height:\s*0px/);
+    assert.match(narrow, /body\.kb-open:has\(\.ed-area:focus\) \.wb-title,/);
     assert.match(narrow, /body\.kb-open \.tabbar\s*\{[^}]*display:\s*none/);
     assert.match(narrow, /body\.kb-open:has\(\.ed-area:focus\) \.ed-chapter-bar,\s*body\.kb-open:has\(#input:focus\) :is\(\.pipeline, \.nextstep, \.composer-meta\)\s*\{[^}]*display:\s*none/);
   });
@@ -112,7 +114,11 @@ describe('触屏与窄屏：样式', { skip: JSDOM_SKIP }, () => {
     // 宽屏上这几颗都不出来。
     const wide = mediaBlocks(css, '(min-width: 901px)').join('\n');
     // 按钮要写成 button.…：button.primary / button.chip-btn 自带 display，只写类名压不过（桌面上露出来过）。
-    assert.match(wide, /\.tab\[data-nav\],\s*#wbMoreBtn,\s*button\.ed-tabs-save,\s*button\.ed-tabs-tools,\s*button\.ed-chapter-menu\s*\{[^}]*display:\s*none/);
+    assert.match(wide, /\.tab\[data-nav\],\s*#wbMoreBtn,\s*button\.ed-tabs-icon,\s*button\.ed-tabs-save,\s*button\.ed-tabs-tools,\s*button\.ed-chapter-menu\s*\{[^}]*display:\s*none/);
+  });
+
+  test('(hover: none)：能打字的框把整页关掉的长按 callout 还回来（走系统的选字菜单）', () => {
+    assert.match(hoverNone, /body\.workbench :is\(input, textarea, \[contenteditable\]\)\s*\{[^}]*-webkit-touch-callout:\s*default/);
   });
 
   test('(hover: none)：快捷键提示与「外部打开」不显示；(pointer: coarse)：文字按钮的点击区往四周借', () => {

@@ -11,7 +11,8 @@
  * | 标题栏「⋯」 | 先列文件 / 编辑 / 视图 / 帮助，点一个换成它的下拉、仍贴着「⋯」，再点「⋯」收起；手机、平板上不列「退出」「打开日志目录」 |
  * | 返回键 | 开着几层就在历史里压几层（浮窗不算一层）；按返回先收菜单、再收编辑区；不是按返回收掉的自己退掉多压的那条；`nfBack()` 收掉一层回 true、没什么可收回 false；宽屏与作者还没碰过页面时不压 |
  * | 软键盘 | 焦点在输入框里、可视高度比没键盘时矮了一截：挂 kb-open；高度回来（按返回收了键盘）就摘掉；不在输入框里不算 |
- * | 编辑区顶上两行 | 标签条末尾「保存」亮灭跟着工具栏那颗、点了就是保存；「⋯」列工具栏的按钮（不列保存与面包屑里的目录段），点一项就是点那颗；章节条「操作 ▾」列那一排动作、带调用次数、亮灭照旧，点了发 chapterAction 并收起编辑区（生成在对话页） |
+ * | 编辑区顶上两行 | 标签条末尾「保存」亮灭跟着工具栏那颗、点了就是保存；「↶」「↷」亮灭跟着这份文件的撤销记录、按下不夺焦点；「⋯」列工具栏的按钮（不列保存与面包屑里的目录段），点一项就是点那颗，最后一项「补全名词」；章节条「操作 ▾」列那一排动作、带调用次数、亮灭照旧，点了发 chapterAction 并收起编辑区（生成在对话页） |
+ * | 触屏的框 | 手指长按输入框不弹我们的菜单（系统的选字菜单），鼠标右键照旧；状态栏「未保存」不带（Ctrl+S） |
  * | 不并排 | 窄屏上要开在第二块的开在主区；「打开这一章」带 `beside: false` |
  */
 const { describe, test, before } = require('node:test');
@@ -279,6 +280,25 @@ describe('窄屏：编辑区顶上两行', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.last('saveFile').text, '# 入镇\n\n正文，改了');
   });
 
+  test('「↶」「↷」：改了一笔之后「↶」亮，点了撤回去、「↷」亮，再点做回来；按下去不夺焦点（打字时软键盘不收）', async () => {
+    const undo = ui.doc.querySelector('#edTabs .ed-tabs-undo');
+    const redo = ui.doc.querySelector('#edTabs .ed-tabs-redo');
+    const area = ui.doc.getElementById('edArea');
+    assert.equal(undo.disabled, false, '上一条改过一笔');
+    assert.equal(redo.disabled, true);
+    const down = new ui.window.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    undo.dispatchEvent(down);
+    assert.equal(down.defaultPrevented, true);
+    ui.clickEl(undo);
+    await wait();
+    assert.equal(area.value, '# 入镇\n\n正文');
+    assert.equal(redo.disabled, false);
+    ui.clickEl(redo);
+    await wait();
+    assert.equal(area.value, '# 入镇\n\n正文，改了');
+    assert.equal(redo.disabled, true);
+  });
+
   test('「⋯」列工具栏的按钮：不列「保存」，不列面包屑里的目录段；点一项就是点那颗', () => {
     ui.clickEl(tools());
     const items = menuItems(ui);
@@ -293,6 +313,15 @@ describe('窄屏：编辑区顶上两行', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.doc.getElementById('edPreview').classList.contains('hidden'), false);
     ui.clickEl(tools());
     pickMenu(ui, '编辑');
+  });
+
+  test('「⋯」最后一项「补全名词」：与 Alt+/、「视图 → 名词补全」同一条路', () => {
+    ui.clickEl(tools());
+    assert.equal(menuItems(ui).at(-1), '补全名词');
+    const got = [];
+    ui.window.addEventListener('nf-names-command', (e) => got.push(e.detail.name), { once: true });
+    pickMenu(ui, '补全名词');
+    assert.deepEqual(got, ['trigger']);
   });
 
   test('章节条「操作 ▾」：列那一排动作、带调用次数、亮灭照旧；上一章 / 下一章的字还在（窄屏只是藏起来）', () => {
@@ -322,6 +351,36 @@ describe('窄屏：编辑区顶上两行', { skip: JSDOM_SKIP }, () => {
     assert.equal(ui.doc.querySelector('.wb-editor-draft'), null, '不该造出第二块');
     const tabs = [...ui.doc.querySelectorAll('#edTabs .ed-tab')].map((t) => t.textContent);
     assert.equal(tabs.length, 2, tabs.join(' / '));
+  });
+});
+
+describe('触屏：能打字的框里长按走系统菜单；状态栏不提 Ctrl+S', { skip: JSDOM_SKIP }, () => {
+  test('手指长按对话输入框：不弹我们的菜单、不拦默认动作；鼠标右键照旧是我们的菜单', () => {
+    const ui = phone(['view.js']);
+    const input = ui.doc.getElementById('input');
+    input.dispatchEvent(new ui.window.PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+    const ev = new ui.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 60 });
+    input.dispatchEvent(ev);
+    assert.equal(ev.defaultPrevented, false);
+    assert.equal(ui.doc.querySelector('.ctx-menu'), null);
+    input.dispatchEvent(new ui.window.PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' }));
+    assert.ok(ui.rightClick(input));
+  });
+
+  test('手机、平板上状态栏写「● 未保存」，不带（Ctrl+S）；桌面带', async () => {
+    const ui = phone();
+    ui.post({ type: 'editorOpen', file: file('chapters/001-楔子.md', '第一章', { kind: 'chapter' }) });
+    const area = ui.doc.getElementById('edArea');
+    const state = () => ui.doc.getElementById('edStatusSave').textContent;
+    area.value = '第一章，改了';
+    area.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+    await wait();
+    assert.equal(state(), '● 未保存（Ctrl+S）');
+    ui.window.matchMedia = (q) => ({ matches: /hover:\s*none|max-width:\s*900px/.test(q), addEventListener() {}, removeEventListener() {} });
+    area.value = '第一章，又改了';
+    area.dispatchEvent(new ui.window.Event('input', { bubbles: true }));
+    await wait();
+    assert.equal(state(), '● 未保存');
   });
 });
 

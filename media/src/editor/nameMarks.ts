@@ -11,10 +11,11 @@
  *   `pointer-events: none`，不挡鼠标；打字、滚动、按下鼠标、移开、输入法组字、换文件就收起。按住鼠标拖选区时不弹。
  * - **Ctrl+点击**（Mac 上 ⌘+点击，Mac 的 Ctrl+点击是右键）：在这一块编辑区打开它的角色卡或设定条目（`openEditor`，正常
  *   标签，与「转到…」一样）；未建条目没有文件，说一句。按着 Ctrl 指着能打开的名字时鼠标变成手形。
- * - **右键（触屏上是长按）一个名字**：菜单最前面一项「打开「林昭」的角色卡」（`api.ts` 的 `addAreaMenu`），未建条目不给。
+ * - **右键一个名字**：菜单最前面一项「打开「林昭」的角色卡」（`api.ts` 的 `addAreaMenu`），未建条目不给。
  * - **触屏**：手指没有悬停，点一下之后补发的兼容鼠标事件也不当悬停（`touch.ts`）。**手指点在名字上**（光标照常落在那儿）
- *   就弹同一只浮窗，底下一行写「长按打开……」；再点一下别处、打字、滚动、失焦就收。不做成点一下就打开卡片（点正文是要
- *   放光标、要看的是这个名字本身）。
+ *   就弹同一只浮窗，底下一颗「打开角色卡 / 设定条目」（手指长按在正文里走系统的选字菜单，没有我们那一项，见 view/menu.ts）；
+ *   再点一下别处、打字、滚动、失焦就收。不做成点一下就打开卡片（点正文是要放光标、要看的是这个名字本身）。
+ *   软键盘弹着（正在打字，body 挂 `kb-open`）时点名字不弹：那是在挪光标，浮窗只会盖住底下两行。
  *
  * 名词表与补全是同一份（`names.ts` 管收发：带指纹问、没变只回指纹、磁盘上变过才算过期），这里只在当前文件归这一层管时
  * 要，表换了整层重画。开关在「视图 → 名词高亮」（缺省开 ⚑，`novelforge.editor.prefs` 的 `nameHighlight`，只认明明白白
@@ -135,7 +136,7 @@ function hideTip(): void {
   tip = null;
 }
 
-function buildTip(item: NameItem, written: string, touch = false): HTMLElement {
+function buildTip(item: NameItem, written: string, touch = false, open?: () => void): HTMLElement {
   const box = el('div', `nm-tip nm-${item.source}`);
   box.setAttribute('role', 'tooltip');
   const head = el('div', 'nm-head');
@@ -146,12 +147,22 @@ function buildTip(item: NameItem, written: string, touch = false): HTMLElement {
   }
   box.appendChild(item.brief ? el('div', 'nm-brief', item.brief) : el('div', 'nm-brief nm-empty', '还没有一句话简介'));
   const what = item.source === 'character' ? '角色卡' : '设定条目';
-  const foot = item.path
-    ? touch
-      ? `长按名字可以打开${what}`
-      : `${modLabel()}+点击打开${what}`
-    : '设定名录里出现过，还没建条目';
-  box.appendChild(el('div', 'nm-foot', foot));
+  if (item.path && touch && open) {
+    // 手指点出来的浮窗：底下是一颗按钮。按下去不夺焦点——正文区一失焦浮窗就收了，点不到它。
+    const btn = el('button', 'chip-btn nm-open', `打开${what}`);
+    btn.type = 'button';
+    for (const type of ['pointerdown', 'mousedown'] as const) {
+      btn.addEventListener(type, (e) => e.preventDefault());
+    }
+    btn.addEventListener('click', () => {
+      hideTip();
+      open();
+    });
+    box.classList.add('nm-touch');
+    box.appendChild(btn);
+    return box;
+  }
+  box.appendChild(el('div', 'nm-foot', item.path ? `${modLabel()}+点击打开${what}` : '设定名录里出现过，还没建条目'));
   return box;
 }
 
@@ -169,19 +180,21 @@ function placeTip(box: HTMLElement, x: number, y: number): void {
 
 function showTip(pane: Pane, hit: { range: HighlightRange; item: NameItem }, x: number, y: number, touch = false): void {
   tip?.remove();
-  tip = buildTip(hit.item, pane.area.value.slice(hit.range.start, hit.range.end), touch);
+  const path = hit.item.path;
+  const open = path ? () => post({ type: 'openEditor', path, pane: pane.id }) : undefined;
+  tip = buildTip(hit.item, pane.area.value.slice(hit.range.start, hit.range.end), touch, open);
   document.body.appendChild(tip);
   placeTip(tip, x, y);
 }
 
-/** 手指点在一个名字上：光标照常落下，同时弹它的浮窗（触屏没有悬停）。点别处、打字、滚动、失焦照旧收起。 */
+/** 手指点在一个名字上：光标照常落下，同时弹它的浮窗（触屏没有悬停）。点别处、打字、滚动、失焦照旧收起；正在打字时不弹。 */
 function onTap(pane: Pane, e: MouseEvent): void {
   if (!isTouchEvent(e) || layer?.composing(pane)) {
     return;
   }
   const hit = nameAt(pane, e.clientX, e.clientY);
   hideTip();
-  if (!hit) {
+  if (!hit || document.body.classList.contains('kb-open')) {
     return;
   }
   current = { pane, start: hit.range.start, end: hit.range.end };
@@ -216,7 +229,7 @@ function followTappedTip(): void {
   placeTip(tip, rect.left + area.clientLeft + pos.left - area.scrollLeft + 12, top + pos.height / 2);
 }
 
-/** 右键（长按）一个能打开的名字：菜单最前面给「打开「林昭」的角色卡」。未建条目没有文件，不给。 */
+/** 右键一个能打开的名字：菜单最前面给「打开「林昭」的角色卡」。未建条目没有文件，不给。 */
 function menuItems(pane: Pane, at: { x: number; y: number }): MenuItem[] {
   const hit = nameAt(pane, at.x, at.y);
   const path = hit?.item.path;

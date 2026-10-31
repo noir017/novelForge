@@ -21,6 +21,7 @@
  * 的文件上、没有 pane 接的，这里兜底结掉，免得它从此永远「保存中」、后面的保存全排在它后头。
  */
 import { el } from '../dom';
+import { touchDevice } from '../touch';
 import { onMessage } from '../vscodeApi';
 import { askDialog, isDialogOpen } from './dialog';
 import type { OpenFile } from './paneElements';
@@ -262,7 +263,8 @@ export function renderSaveState(cell: HTMLElement, file: OpenFile | undefined): 
     } else if (t?.note) {
       text = t.note;
     } else if (file.draft !== file.text) {
-      text = '● 未保存（Ctrl+S）';
+      // 手机、平板上多半没有键盘，不提快捷键（保存在标签条上那一颗）。
+      text = touchDevice() ? '● 未保存' : '● 未保存（Ctrl+S）';
       tone = 'dirty';
     } else {
       text = t?.savedAt ? `已保存 ${clock(t.savedAt)}` : '已保存';

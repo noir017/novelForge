@@ -188,15 +188,26 @@
 
   /*
    * 顶上只留标签条与章节条两行（editor/narrowTools.ts）：工具栏那一行收起，按钮挪进标签条末尾的「⋯」，
-   * 「保存」在它前面单留一颗；章节条底下那一排动作收进条上的「操作 ▾」，上一章 / 下一章只露箭头。
+   * 「↶」「↷」「保存」在它前面单留；章节条底下那一排动作收进条上的「操作 ▾」，上一章 / 下一章只露箭头。
    */
   .ed-toolbar {
     display: none;
   }
 
+  .ed-tabs-icon,
   .ed-tabs-save,
   .ed-tabs-tools {
     flex: 0 0 auto;
+  }
+
+  .ed-tabs-icon {
+    width: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--vscode-foreground);
+    font-size: 1.15em;
   }
 
   .ed-tabs-save {
@@ -215,6 +226,7 @@
     font-size: 1.2em;
   }
 
+  .ed-tabs-icon.hidden,
   .ed-tabs-save.hidden,
   .ed-tabs-tools.hidden {
     display: none;
@@ -270,6 +282,12 @@
   }
 
   /* 正在打字：章节条也让出来（标签条、状态栏留着），键盘上面多几行字。对话页同理，收起流水线条、下一步与输入框底下那行小字。 */
+  /* 光标在正文里时标题栏也让出来（书名、主题、「⋯」菜单打字时用不着），编辑区那层顶到最上面；标签条上保存、撤销都在。 */
+  body.kb-open:has(.ed-area:focus) {
+    --nf-title-height: 0px;
+  }
+
+  body.kb-open:has(.ed-area:focus) .wb-title,
   body.kb-open:has(.ed-area:focus) .ed-chapter-bar,
   body.kb-open:has(#input:focus) :is(.pipeline, .nextstep, .composer-meta) {
     display: none;
@@ -317,12 +335,13 @@
 }
 
 /*
- * 宽屏：底栏的「正文」「更多」、标题栏的「⋯」、标签条末尾的「保存」「⋯」与章节条的「操作 ▾」都用不着（编辑区常驻、菜单栏与工具栏都在）。
+ * 宽屏：底栏的「正文」「更多」、标题栏的「⋯」、标签条末尾的「↶」「↷」「保存」「⋯」与章节条的「操作 ▾」都用不着（编辑区常驻、菜单栏与工具栏都在）。
  * 按钮写成 `button.…`：`button.primary` / `button.chip-btn` 自带 `display: inline-flex`，只写类名压不过它。
  */
 @media (min-width: 901px) {
   .tab[data-nav],
   #wbMoreBtn,
+  button.ed-tabs-icon,
   button.ed-tabs-save,
   button.ed-tabs-tools,
   button.ed-chapter-menu {

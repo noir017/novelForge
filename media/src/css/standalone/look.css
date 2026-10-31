@@ -137,8 +137,10 @@
 
 .ed-look-choice {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 3px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
