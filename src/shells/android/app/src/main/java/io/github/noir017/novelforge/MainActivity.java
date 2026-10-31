@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,8 +22,11 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowInsetsController;
 import android.webkit.ConsoleMessage;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -84,6 +88,8 @@ public class MainActivity extends Activity {
         root.addView(web);
         root.addView(buildPanel());
         setContentView(root);
+        // 页面没加载出来前先用上次的颜色，免得深色主题每次启动都先闪一下白条
+        if (prefs.contains("bar_color")) applyBarColor(prefs.getInt("bar_color", 0));
         setupWebView();
         boot();
     }
@@ -133,6 +139,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(true);
         // 字号由页面自己的设置管，不跟系统字体缩放（放大了窄屏布局会挤坏）
         s.setTextZoom(100);
+        web.addJavascriptInterface(new ShellBridge(), "NovelForgeShell");
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -151,7 +158,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (!loadFailed && !starting) panel.setVisibility(View.GONE);
-                if ("remote".equals(mode()) && sameOrigin(Uri.parse(url))) rememberWebLogin();
+                if (!sameOrigin(Uri.parse(url))) return;
+                view.evaluateJavascript(THEME_HOOK, null);
+                if ("remote".equals(mode())) rememberWebLogin();
             }
 
             @Override
@@ -281,6 +290,59 @@ public class MainActivity extends Activity {
                 // 页面没跑完脚本（比如已经跳走了）：这次不记
             }
         });
+    }
+
+    // ── 系统栏跟页面主题 ───────────────────────────────────────────
+
+    /**
+     * 盯住页面的 `<meta name="theme-color">`（换主题时页面改它，见 media/src/editor/shell.ts 的 syncThemeColor），
+     * 一变就交给壳染系统栏。没有这个 meta 的旧版服务端：什么都不做，系统栏照旧跟系统深浅色
+     */
+    private static final String THEME_HOOK = "(function () {"
+            + "var m = document.querySelector('meta[name=\"theme-color\"]');"
+            + "if (!m || m.dataset.nfShell) return;"
+            + "m.dataset.nfShell = '1';"
+            + "var send = function () { NovelForgeShell.setBarColor(m.content); };"
+            + "new MutationObserver(send).observe(m, { attributes: true, attributeFilter: ['content'] });"
+            + "send();"
+            + "})()";
+
+    /** 给页面开的唯一一个口子。页面里谁调了都只是换个颜色，所以不必像记令牌那样躲开 addJavascriptInterface */
+    private class ShellBridge {
+        @JavascriptInterface
+        public void setBarColor(String css) {
+            if (css == null) return;
+            int color;
+            try {
+                color = Color.parseColor(css.trim());
+            } catch (IllegalArgumentException e) {
+                return;
+            }
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                prefs.edit().putInt("bar_color", color).apply();
+                applyBarColor(color);
+            });
+        }
+    }
+
+    /** 状态栏、导航栏染成页面标题栏 / 底栏的颜色（两者同色）；底色浅就换深色图标 */
+    @SuppressWarnings("deprecation")
+    private void applyBarColor(int color) {
+        Window w = getWindow();
+        w.setStatusBarColor(color);
+        w.setNavigationBarColor(color);
+        boolean light = Color.luminance(color) > 0.5f;
+        View decor = w.getDecorView();
+        int flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        decor.setSystemUiVisibility(light ? decor.getSystemUiVisibility() | flags : decor.getSystemUiVisibility() & ~flags);
+        // Android 11 起只设旧标志位不一定生效（主题里的 windowLightStatusBar 会盖回去），两样都设，与 androidx 的做法一致
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController c = w.getInsetsController();
+            int appearance = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            if (c != null) c.setSystemBarsAppearance(light ? appearance : 0, appearance);
+        }
     }
 
     // ── 书放在哪 ──────────────────────────────────────────────────

@@ -48,6 +48,7 @@ export function standalonePage(root?: string, version = '0.0.0'): string {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+<meta name="theme-color" content="#181818">
 <link href="/media/view.css" rel="stylesheet">
 <link href="/media/standalone.css" rel="stylesheet">
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">

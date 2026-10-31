@@ -11,7 +11,7 @@
  * | 字号快捷键 | Ctrl+= / Ctrl++ / Ctrl+- / Ctrl+0 **只在焦点在编辑区里时拦**；对话输入框、页面上、组字中途一律放行给浏览器 |
  * | 外观面板 | 页面模板里没有；打开时焦点进面板、不是遮罩（`.modal-overlay`）；字体 / 字号 / 行距 / 版心改了当场换变量；字号越界夹回去；恢复默认；Esc 关、焦点回编辑区；只开一个 |
  * | 同一组变量 | textarea 与镜像层算出来是同一组 `var(--nf-ed-…)`；CSS 里同一条规则；版心的居中算式三处同一条；预览也读它；不往元素上单写字号 |
- * | 护眼主题 | 标题栏按钮深 → 浅 → 护眼 → 深；面板里挑「护眼」；记在 `novelforge.theme`；theme.css 里那一套变量与浅色一样全 |
+ * | 护眼主题 | 标题栏按钮深 → 浅 → 护眼 → 深；面板里挑「护眼」；记在 `novelforge.theme`；theme.css 里那一套变量与浅色一样全；`theme-color` 跟着换成标题栏底色 |
  * | 记在本地 | 记进 `novelforge.editor.prefs`、同一处的成对符号开关不丢；刷新时坏值回落缺省、越界夹回去 |
  */
 const { describe, test, before } = require('node:test');
@@ -442,6 +442,25 @@ describe('外观：护眼主题', { skip: JSDOM_SKIP }, () => {
       return [...rule.style].filter((n) => n.startsWith('--')).sort();
     };
     assert.deepEqual(names('sepia'), names('light'));
+  });
+
+  test('换主题时 <meta name="theme-color"> 跟着换成标题栏底色（手机浏览器的地址栏、Android 壳的系统栏按它染）', () => {
+    const doc = h.ui.doc;
+    const style = doc.createElement('style');
+    style.textContent = fs.readFileSync(path.join(MEDIA, 'standalone.css'), 'utf8');
+    doc.head.appendChild(style);
+    const meta = doc.createElement('meta');
+    meta.name = 'theme-color';
+    doc.head.appendChild(meta);
+    const bar = () => h.ui.window.getComputedStyle(doc.documentElement).getPropertyValue('--nf-titlebar-background').trim();
+    const seen = {};
+    for (let i = 0; i < 3; i++) {
+      h.ui.clickEl(doc.getElementById('wbThemeBtn'));
+      assert.equal(meta.content, bar(), `${theme()}：theme-color 与标题栏底色不一致`);
+      seen[theme()] = meta.content;
+    }
+    assert.deepEqual(Object.keys(seen).sort(), ['dark', 'light', 'sepia']);
+    assert.equal(new Set(Object.values(seen)).size, 3, `三套该是三个颜色：${JSON.stringify(seen)}`);
   });
 });
 

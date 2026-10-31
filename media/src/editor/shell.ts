@@ -65,9 +65,22 @@ export function currentTheme(): Theme {
   return isTheme(value) ? value : 'dark';
 }
 
+/**
+ * `<meta name="theme-color">` 跟着换成标题栏的底色（标题栏与底栏同色）：手机浏览器的地址栏、
+ * Android 壳的系统栏都按它染（壳那边见 `src/shells/android/…/MainActivity.java` 的 THEME_HOOK）。
+ */
+function syncThemeColor(): void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  const color = getComputedStyle(document.documentElement).getPropertyValue('--nf-titlebar-background').trim();
+  if (meta && color) {
+    meta.content = color;
+  }
+}
+
 /** 换主题并记下来。 */
 export function setTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
+  syncThemeColor();
   if (themeBtn) {
     const next = nextTheme(theme);
     themeBtn.textContent = THEME_ICON[next];

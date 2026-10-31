@@ -75,6 +75,9 @@ libnode.so --use-bundled-ca --disable-warning=ExperimentalWarning files/server/s
 - **前台服务**：写一章要几分钟，切到别的 app 时系统会把后台 app 连同它起的子进程一起冻住（Android 11+ 的 cached apps freezer），
   模型的流断在半路。有前台服务的 app 不算后台。只在本机模式起；从最近任务里划掉 app 时连同 node 一起收掉。
 - **令牌只走登录页**：壳不自己算 cookie（那是 `standalone/auth.ts` 的事），用 `postUrl` 交令牌，cookie 由服务端种。
+- **系统栏跟页面主题**：页面换主题时把 `<meta name="theme-color">` 改成标题栏底色（`media/src/editor/shell.ts`），
+  壳在页面加载完时注入一段 MutationObserver 盯住它，经 `addJavascriptInterface` 的 `NovelForgeShell.setBarColor` 染状态栏与导航栏、
+  按深浅换图标颜色，并记下来供下次启动先用。这个口子只能换颜色，所以不怕页面里的 iframe 调到；没有这个 meta 的旧服务端照旧跟系统深浅色。
 
 ## 限制与待实机验证
 

@@ -6,7 +6,7 @@
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | 样式 | 整页的列不被 min-content 撑开；`(hover: none)` 里整页不选字、正文与要复制的那几样照常能选、悬停才露的东西常显、不提快捷键、不显示「外部打开」；`(pointer: coarse)`（与没登记指针的 `(pointer: none)`）里点击目标放大、文字按钮的点击区往四周借；窄屏上活动栏成了底栏（文件 / 历史 / 日志 / 设置收进「更多」）、标题栏藏菜单栏、编辑区顶上只留标签条与章节条、提示条浮在底栏上；软键盘弹着（kb-open）或可视高度很矮时、正在打字就让出底栏与流水线条 / 章节条；宽屏上窄屏那几颗不出来；区分只用媒体查询，不认 UA；页头声明了 `interactive-widget=resizes-content` |
+ * | 样式 | 整页的列不被 min-content 撑开；`(hover: none)` 里整页不选字、正文与要复制的那几样照常能选、悬停才露的东西常显、不提快捷键、不显示「外部打开」；`(pointer: coarse)`（与没登记指针的 `(pointer: none)`）里点击目标放大、文字按钮的点击区往四周借；窄屏上活动栏成了底栏（文件 / 历史 / 日志 / 设置收进「更多」）、标题栏藏菜单栏、编辑区顶上只留标签条与章节条、提示条浮在底栏上；软键盘弹着（kb-open）或可视高度很矮时、正在打字就让出底栏与流水线条 / 章节条；宽屏上窄屏那几颗不出来；区分只用媒体查询，不认 UA；页头声明了 `interactive-widget=resizes-content` 与 `theme-color` |
  * | 右键菜单 | 下半屏放不下：往上翻 / 平移贴底；比可视区还高：压 max-height；桌面上右下角照旧往左上翻 |
  * | 标题栏下拉与子菜单 | 「帮助」的下拉伸出右边就往左收（与按钮右沿对齐）；子菜单右边放不下翻到左边、贴边；点一下父菜单项也展开子菜单；手指点之前补发的 mouseenter / mouseover 不展开子菜单、不换菜单（实机上一点父项就打开了最近的书、点「编辑」把菜单全关了） |
  * | 工程页的「看一眼」 | 手指长按章节行：最前面「细纲速览」（挂着失败的还有「看失败原因」），点了钉住浮窗、按在外面才收；鼠标右键没有这几项；手指点之后补发的 mouseover 不弹浮窗；手指点感叹号钉住失败浮窗，鼠标点不弹；说明被截断的行长按有「看完整说明」 |
@@ -131,6 +131,8 @@ describe('触屏与窄屏：样式', { skip: JSDOM_SKIP }, () => {
     assert.doesNotMatch(css, /android|user-agent|data-shell/i);
     const { standalonePage } = require('../../helpers/load').loadModule('src/shells/standalone/page.ts');
     assert.match(standalonePage(), /<meta name="viewport" content="[^"]*interactive-widget=resizes-content/);
+    // 系统栏的颜色：手机浏览器与 Android 壳都按它染，换主题时页面改它（look.test.js「护眼主题」）
+    assert.match(standalonePage(), /<meta name="theme-color" content="#[0-9a-f]{6}">/);
   });
 });
 
