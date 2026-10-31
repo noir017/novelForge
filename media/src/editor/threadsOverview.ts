@@ -3,7 +3,7 @@
  * 时间轴，作者一眼看出每条线走到哪、哪条伏笔该收了、计划的事哪一章没发生。
  *
  * - **一个不对应文件的特殊标签**（`store.ts` 的 `SpecialTab`）：标签条上排在文件标签前面，切过去时这一块没有当前文件，
- *   画的东西照历史版本抽屉（`versions.ts`）的做法挂在这一块的 `.ed-stage` 上、盖住正文区。同一时刻只开在一块里（缺省主区）。
+ *   画的东西挂在这一块的 `.ed-stage` 上、盖住正文区。同一时刻只开在一块里（缺省主区）。
  *   刷新记着、恢复时先于文件打开（`store.ts` 的 `restore`），记坏了的不认、不崩。
  * - **数据按需要**（仿「转到…」）：显示出来时发 `requestThreadsOverview { requestId }`，后端回 `threadsOverview`
  *   （`core/views/threads.ts` 的 `buildThreadsOverview`：纯读盘、不调模型、状态现算）；认 requestId（回复是广播）。显示着

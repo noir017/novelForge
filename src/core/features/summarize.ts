@@ -1,3 +1,18 @@
+/**
+ * 定稿第一步与全文大纲的编排。
+ *
+ * - `summarizeChapter`：照 `chapters/` 的正文反向更新这一章的细纲（正文镜像的那一份）。手上有细纲就对照着改
+ *   （`REFINE_SYSTEM`：以正文为准，一致的保留原措辞），细纲是空的就照正文从头整理（`SUMMARY_SYSTEM`）。
+ *   按八个小标题写 1 次、转写成 JSON 再 1–2 次；转写没成按小节读原文，都读不出来才红 ❗、细纲不动
+ *   （`SummarizeError` 带着调了几次）。落盘走 `Workspace.finalizePlot`：旧版先进回收站，七节整体替换。
+ * - 连续性事实的证据在这里挂：模型只给陈述，证据句用 bigram 在整章正文里找（`model/continuity.ts`），找不到的丢掉。
+ * - `syncSummaries`（工程页「立即同步」）：先并发照正文更新细纲（`summarizeChapters`），再按章号串行走角色状态与
+ *   叙事线（`finalizeSteps.ts`）；中途取消时后两步没走到的章挂黄 ❗。
+ * - `updateGlobalSummary`：旧摘要 + 之后定稿过的各章细纲，1 次出新版；批量写章「写完即定稿」落后
+ *   `GLOBAL_SUMMARY_EVERY` 章调一次。`rebuildGlobalSummary` 收所有定稿过的细纲重建。
+ *
+ * 系统提示词在 summarizePrompt.ts。
+ */
 import { getHost } from '../host';
 import { basename } from 'node:path';
 import { collectText, mergeUsage } from '../llm/collect';

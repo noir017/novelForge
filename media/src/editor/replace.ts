@@ -1,6 +1,6 @@
 /**
- * `editorReplace`（「把编辑区里这份文件换成这段文字」）的接收端。冲突条的「对比合并…」（`conflictMerge.ts`）
- * 与历史版本的「对比…」（`versions.ts`）共用；「恢复这一版」也走这里的 {@link replaceInEditor}。
+ * `editorReplace`（「把编辑区里这份文件换成这段文字」）的接收端，冲突条的「对比合并…」（`conflictMerge.ts`）用；
+ * 「版本」侧栏与对比标签的「恢复整份」也走这里的 {@link replaceInEditor}。
  *
  * - **只认自己发出去的 `requestId`**：回复是广播，同一个工程开着两个窗口时，另一个窗口里那一份不该被换掉。
  * - **换内容只走 `Pane.applyEdit`**（`api.ts` 的硬规矩）：整份换掉也只记一步撤销，成为未保存，**不写盘**。

@@ -1,24 +1,26 @@
 /**
- * 内置编辑器的「不丢稿」后端一半：冲突时的对比合并，与历史版本的列、读、对比、现在存一版。
+ * 内置编辑器的「不丢稿」后端一半：冲突时的对比合并，与「版本」侧栏的列、读、现在存一版。
  *
- * 两件事都**不写盘**：合并 / 对比的结果经 `editorReplace` 交回发起的那个页面，前端用 `Pane.applyEdit`
- * 换进编辑区（一步撤销，成为未保存），存不存由作者——恢复一版从不直接盖掉磁盘上的那一份（第 3 条）。
- * 快照本身由网关在覆盖之前存（`workspace/history.ts`），这里只读。
+ * 对比合并**不写盘**：结果经 `editorReplace` 交回发起的那个页面，前端用 `Pane.applyEdit` 换进编辑区（一步撤销，成为
+ * 未保存），存不存由作者（第 3 条）。合并视图是宿主的能力（`Host.mergeTexts`，独立版有、插件壳没有）：没有的宿主只回一句
+ * 说明，不抛。
  *
- * 合并视图是宿主的能力（`Host.mergeTexts`，独立版有、插件壳没有）：没有的宿主只回一句说明，不抛。
+ * 「版本」侧栏的时间线是这份文件的快照（网关在覆盖之前存的，`workspace/history.ts`）与它在各存档点里的样子
+ * （`workspace/checkpoints.ts`）混排；这里只读。两版之间怎么不同、放回哪一处都是前端的事（`editor/versionDiff.ts`），
+ * 后端只给全文。
  */
 import * as path from 'node:path';
 import type { ChatController } from './index';
 import { getHost } from '../host';
+import { decodeFileText } from '../model/importText';
+import type { VersionView } from '../protocol';
 import { describeError, scoped } from '../runtime/logger';
 import { WsError } from '../workspace/guard';
-import {
-  historyUnavailable,
-  listSnapshots,
-  parseSnapshotFileName,
-  readSnapshot,
-  snapshotNow,
-} from '../workspace/history';
+import { checkpointVersionsOf, readCheckpoint, readCheckpointBytes } from '../workspace/checkpoints';
+import { historyUnavailable, listSnapshots, readSnapshot, snapshotNow } from '../workspace/history';
+
+/** 存档点那几行的 id 前缀（后面是存档点的 id）。快照的 id 是文件名，不会以它开头。 */
+export const CHECKPOINT_VERSION_PREFIX = 'cp:';
 
 const log = scoped('历史版本');
 
@@ -59,21 +61,40 @@ export async function mergeWithDisk(c: ChatController, rel: string, text: string
   c.post({ type: 'editorReplace', requestId, path: rel, text: merged, base: { text: disk.text, hash: disk.hash } });
 }
 
-/** 列出这份文件的快照（新的在前）。不存历史版本的文件照实说为什么。 */
+/**
+ * 列出这份文件的历史版本：快照与它在各存档点里的样子混排，新的在前。不存历史版本的文件照实说为什么。
+ * 存档点读不动（目录坏了之类）只是少了那几行，快照照样列。
+ */
 export async function listVersions(c: ChatController, rel: string): Promise<void> {
   const unavailable = await historyUnavailable(c.project, rel);
-  c.post({
-    type: 'versions',
-    path: rel,
-    entries: unavailable ? [] : await listSnapshots(c.project, rel),
-    ...(unavailable ? { unavailable } : {}),
-  });
+  if (unavailable) {
+    c.post({ type: 'versions', path: rel, entries: [], unavailable });
+    return;
+  }
+  const entries: VersionView[] = await listSnapshots(c.project, rel);
+  try {
+    for (const v of await checkpointVersionsOf(c.project, rel)) {
+      entries.push({
+        id: `${CHECKPOINT_VERSION_PREFIX}${v.id}`,
+        time: v.time,
+        words: v.words,
+        bytes: v.bytes,
+        checkpoint: { note: v.note, auto: v.auto },
+      });
+    }
+  } catch (err) {
+    log.warn(`列 ${rel} 在存档点里的样子失败`, describeError(err));
+  }
+  entries.sort((a, b) => b.time - a.time);
+  c.post({ type: 'versions', path: rel, entries });
 }
 
-/** 读某一个快照的全文，回给发起的那个页面。 */
+/** 读某一版的全文（快照，或存档点里的那一份），回给发起的那个页面。 */
 export async function readVersion(c: ChatController, rel: string, id: string, requestId: string): Promise<void> {
   try {
-    const text = await readSnapshot(c.project, rel, id);
+    const text = id.startsWith(CHECKPOINT_VERSION_PREFIX)
+      ? decodeFileText(await readCheckpointBytes(c.project, await readCheckpoint(c.project, id.slice(CHECKPOINT_VERSION_PREFIX.length)), rel))
+      : await readSnapshot(c.project, rel, id);
     c.post({ type: 'versionText', requestId, path: rel, id, text });
   } catch (err) {
     c.post({ type: 'versionText', requestId, path: rel, id, error: describeError(err) });
@@ -81,55 +102,11 @@ export async function readVersion(c: ChatController, rel: string, id: string, re
 }
 
 /**
- * 「对比…」：左边那一个快照、右边编辑器里当前的这一份（`text`），逐段挑。采纳之后回 `editorReplace`
- * （不带基线：磁盘那一份没变，换进去的是作者挑出来的内容，成为未保存）。一处都没挑就不回，说一句。
- */
-export async function compareVersion(
-  c: ChatController,
-  rel: string,
-  id: string,
-  text: string,
-  requestId: string
-): Promise<void> {
-  const host = getHost();
-  if (!host.mergeTexts) {
-    c.toast('这里没有对比视图：快照在 .novelforge/history/ 里，可以直接打开看。', 'error');
-    return;
-  }
-  let old: string;
-  try {
-    old = await readSnapshot(c.project, rel, id);
-  } catch (err) {
-    c.toast(describeError(err), 'error');
-    return;
-  }
-  const when = describeSnapshotTime(id);
-  const verdict = await host.mergeTexts(`对比「${path.posix.basename(rel)}」：${when} 的快照 ↔ 编辑器里的`, old, text, {
-    sides: { before: '快照', after: '编辑器里的' },
-    applyLabel: '放回编辑器',
-    message: `${rel}　·　放回编辑区之后是未保存的，存不存由你`,
-  });
-  const merged = typeof verdict === 'object' ? verdict.merged : verdict === 'apply' ? text : undefined;
-  if (merged === undefined) {
-    return;
-  }
-  if (merged === text) {
-    c.toast('没有挑快照里的任何一处，编辑区没有变化。');
-    return;
-  }
-  log.info(`对比 ${rel} 的 ${id}：放回编辑器`, `${merged.length} 字符`);
-  // 放回之前先把磁盘上现在那一份存一版（跳过节流，一样的不重复存）：放回去的内容一旦存盘——开着自动保存时
-  // 停笔两秒就存——被盖掉的那一份得已经在历史里。节流按「改动小」可能不存它，这里不能靠节流。
-  await snapshotNow(c.project, rel);
-  c.post({ type: 'editorReplace', requestId, path: rel, text: merged });
-}
-
-/**
  * 「现在存一版」：把**磁盘上当前**这份存一个快照（跳过节流）。编辑器里没保存的修改不在里面——那一份要
  * 先保存，保存本身就会把被覆盖的旧内容存一版。之后重推 `versions`。
  *
- * `quiet`：「恢复这一版」放回编辑区之前前端顺手发的（与 {@link compareVersion} 放回之前那一下同一个理由）。
- * 什么提示都不弹——作者点的是「恢复」，不是「存一版」；存不下的原因已经记了 warn。
+ * `quiet`：前端把一版（或一处）放回编辑区之前顺手发的：放回去的内容一存盘（开着自动保存时停笔两秒就存）就盖掉
+ * 磁盘上这一份，而节流按「改动小」可能不存它。什么提示都不弹——作者点的是「恢复」，不是「存一版」；存不下的原因已经记了 warn。
  */
 export async function saveVersion(c: ChatController, rel: string, quiet = false): Promise<void> {
   const unavailable = await historyUnavailable(c.project, rel);
@@ -154,15 +131,4 @@ export async function saveVersion(c: ChatController, rel: string, quiet = false)
     c.toast(`没能存下这一版：${r.error ?? '原因不明'}`, 'error');
   }
   await listVersions(c, rel);
-}
-
-/** 快照那一刻的说法（`10-18 14:32`），合并视图的标题用。认不出的名字原样给。 */
-function describeSnapshotTime(id: string): string {
-  const at = parseSnapshotFileName(id);
-  if (!at) {
-    return id;
-  }
-  const d = new Date(at.time);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

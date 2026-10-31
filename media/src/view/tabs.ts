@@ -43,6 +43,14 @@ export function installTabs(): void {
     }
   });
 
+  // 编辑器工具栏「历史」、「文件 → 历史版本…」：切到「版本」页（内容是 editor.js 画的）。插件里没有这一页。
+  window.addEventListener('nf-show-versions', () => {
+    if (document.getElementById('pane-versions') && !isTabActive('versions')) {
+      showTab('versions');
+      vscode.postMessage({ type: 'switchTab', tab: 'versions' });
+    }
+  });
+
   el.tabbar.addEventListener('click', (e) => {
     const btn = closestFrom<HTMLElement>(e.target, '.tab');
     if (!btn?.dataset.tab) {

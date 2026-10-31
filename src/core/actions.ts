@@ -1,3 +1,13 @@
+/**
+ * 工程级交互流程（初始化、新建一章、粘进现成的一章、新建一本书），命令面板与网页共用。
+ *
+ * - 新建一章只落一个纯序号名的空细纲，与上一章放在同一个子目录，不问标题也不打开；章号取细纲与 `chapters/`
+ *   两边的最大号 +1。「建完去哪」由调用方决定。
+ * - `newChapterFlow` 只留给「手里已有一章现成的文字要粘进来」：先问章节名称，正文与镜像位置的空细纲一起建；
+ *   这一章已经排好了细纲的，名字预填它的标题、正文落进它的子目录。
+ * - `createBookAt`（独立版欢迎页）在一个目录下建以书名命名的文件夹（`model/bookDir.ts`）并初始化；同名文件夹
+ *   空着就用、有东西或已是一本书就报错。
+ */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveSectionDir, validateName } from './files/fileOps';

@@ -90,7 +90,8 @@ function start(stage: HTMLElement): void {
   installParagraphTools();
   // 不丢稿：磁盘改动同步到已开的标签、保存状态、自动保存（safety.ts）。
   installSaveSafety();
-  // 不丢稿：冲突条的「对比合并…」、工具栏「历史」与历史版本面板、两者共用的 editorReplace。同样挂在第一次重画上。
+  // 不丢稿：冲突条的「对比合并…」与它用的 editorReplace、侧栏「版本」页与对比标签（工具栏「历史」同样挂在第一次重画上；
+  // 对比标签是特殊标签，要在 restore() 之前登记）。
   installEditorReplace();
   installConflictMerge(post);
   installVersions(post);

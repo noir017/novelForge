@@ -1,3 +1,8 @@
+/**
+ * 前端 ↔ 后端的消息协议（`InMessage` / `OutMessage` / `ViewState`），插件 webview 与独立版网页共用，是前后端的
+ * 唯一契约。按需要的几对消息（「转到…」的索引、名词表、全书查找、叙事线总览、时间线总览）各有一份类型文件，
+ * 都带请求号、不进 `ViewState`。
+ */
 export type {
   ChapterAction,
   CharacterAction,

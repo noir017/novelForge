@@ -9,7 +9,7 @@
  * | 存一个 | 发 `createCheckpoint`（备注去掉首尾空白）、清空输入框、列表回来之前「正在存…」且按钮置灰；回车也存 |
  * | 留住 | 只有自动的有「留住…」；摊开一格（填着原来那句），「留住」发 `noteCheckpoint` |
  * | 跟现在比 | 发 `checkpointDiff`、先说「正在比…」、标题「时刻「备注」 ↔ 现在」；三组按 改过的 / 之后删掉的 / 之后新建的 排、带份数；种类、字数（「3,011 → 2,870 字」「当时」「现在」）；一样的只报个数；别的 id 不认；出错、一模一样照实说；「← 返回列表」 |
- * | 对比 | 只有页面上有 `#mergeModal`（独立版）才有、只给改过的与删掉的，发 `compareCheckpointFile` |
+ * | 对比 | 只有装了内置编辑器（独立版，回答 `nf-version-diff-query`）才有、只给改过的与删掉的；点了关掉弹窗、在编辑区开对比标签（没开着的那份先开成临时标签） |
  * | 退回 | 点两下才发：第一下只换字（`is-armed`），点别处退回第一段；单份的 `expect` 是这一份的 `hashNow`、删掉的是 `null`；整本的 `paths` 是改过的 + 删掉的，勾了才带 `trash`；退回期间按钮置灰，后端重推之后停在这一页重画、勾选框回到不勾 |
  * | 未保存的文件 | 独立版经 `nf-dirty-query` 问内置编辑器，开着、改过没存的那一份进 `dirty`；插件形态没人回答，是空的 |
  * | 关 | Esc / × 关、面板上的一切丢掉，之后再到的消息不画；合并视图盖在上面时 Esc 不关底下的面板；后端的 prompt 中途占了这一层时，推来的列表不往上画 |
@@ -289,8 +289,7 @@ describe('存档点 · 跟现在比（插件形态：没有合并视图）', { s
     assert.deepEqual(cells(DRAFT13), [DRAFT13, '草稿', '现在 120 字']);
   });
 
-  test('页面上没有 #mergeModal：没有「对比」；改过的、删掉的能退回，新建的没有按钮', () => {
-    assert.equal(h.ui.doc.getElementById('mergeModal'), null);
+  test('没有内置编辑器（插件形态）：没有「对比」；改过的、删掉的能退回，新建的没有按钮', () => {
     assert.equal(h.$$('.cp-diff-view .cp-compare').length, 0);
     assert.ok(h.btn(h.fileRow(CH3), '退回这一份'));
     assert.ok(h.btn(h.fileRow(LIN), '退回这一份'));
@@ -421,15 +420,21 @@ describe('存档点 · 独立版（有合并视图与内置编辑器）', { skip
     h.ui.window.__nfToast = () => {};
   });
 
-  test('「对比」只给改过的与删掉的，发 compareCheckpointFile', () => {
+  test('「对比」只给改过的与删掉的；点了关掉弹窗，没开着的那份先开成临时标签，进了编辑区就开对比标签', async () => {
     h.openDiff();
-    assert.ok(h.ui.doc.getElementById('mergeModal'));
     assert.ok(h.btn(h.fileRow(CH3), '对比'));
     assert.ok(h.btn(h.fileRow(LIN), '对比'));
     assert.ok(!h.btn(h.fileRow(CH13), '对比'));
     const before = h.ui.sent.length;
     h.ui.clickEl(h.btn(h.fileRow(CH3), '对比'));
-    assert.deepEqual(plain(h.ui.sent.slice(before)), [{ type: 'compareCheckpointFile', id: MANUAL_ID, path: CH3 }]);
+    assert.equal(h.isOpen(), false, '弹窗关掉');
+    assert.deepEqual(plain(h.ui.sent.slice(before)), [{ type: 'openEditor', path: CH3, preview: true }]);
+    h.ui.post({ type: 'editorOpen', file: file(CH3, '现在的正文', { kind: 'chapter' }), preview: true });
+    await new Promise((r) => setImmediate(r));
+    assert.ok(h.ui.doc.querySelector('.ed-tab-special[data-special="version-diff"]'), '开了对比标签');
+    assert.equal(plain(h.ui.last('readVersion')).id, `cp:${MANUAL_ID}`);
+    // 后面几条要面板开着。
+    h.openDiff();
   });
 
   test('合并视图盖在上面时 Esc 不关底下的面板', () => {

@@ -147,6 +147,7 @@ body.no-workspace #edWelcome {
 body.no-workspace #pane-chat,
 body.no-workspace #pane-project,
 body.no-workspace #pane-files,
+body.no-workspace #pane-versions,
 body.no-workspace #pane-history {
   position: relative;
 }

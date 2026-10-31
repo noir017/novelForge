@@ -81,10 +81,12 @@ import {
   pendingDrafts,
   persist,
   refreshOtherTabs,
+  rememberView,
   schedulePersist,
   setActivePane,
   specialTabOf,
   syncDraftVisibility,
+  takeView,
 } from './store';
 import type { ApplyEditOptions, Pane } from './store';
 import { extraTabItems } from './tabMenu';
@@ -152,6 +154,12 @@ export function createPane(
   let shownSpecial: string | null = null;
   /** 切到特殊标签之前的那份文件：关掉特殊标签时回到它（刷新恢复时是存下来的那一份）。 */
   let specialReturn: string | null = null;
+  /**
+   * 正文区（或预览）此刻显示的是哪一份：它的光标与滚动活在 DOM 里。`renderAll` 换成另一份时先把这一份的留住、再把那一份的
+   * 放回去——切换不只经 `activate`（点标签），工程页 / 文件页 / 「转到…」再点一份开着的、新开一份、关掉当前的露出旁边那一份，
+   * 都只改 `activePath` 再重画。从前这些路上 textarea 沿用上一份的滚动偏移，滚动事件还把它记成了这一份的位置。
+   */
+  let shown: OpenFile | undefined;
 
   const pane: Pane = {
     id,
@@ -210,6 +218,8 @@ export function createPane(
   }
 
   function snapshot() {
+    // 不进刷新恢复的特殊标签（对比标签）不记；正显示着的是它时照样记切过去之前的那一份，刷新后回到那份文件。
+    const kept = specials.filter((id) => !specialTabOf(id)?.transient);
     return {
       open: [...files.values()].map((f) => ({
         path: f.path,
@@ -220,8 +230,8 @@ export function createPane(
       })),
       // 特殊标签正显示着：记切过去之前的那一份，刷新之后关掉特殊标签还回得去。
       active: shownSpecial ? (specialReturn && files.has(specialReturn) ? specialReturn : null) : pane.activePath,
-      ...(specials.length > 0 ? { specials: [...specials] } : {}),
-      ...(shownSpecial ? { special: shownSpecial } : {}),
+      ...(kept.length > 0 ? { specials: kept } : {}),
+      ...(shownSpecial && kept.includes(shownSpecial) ? { special: shownSpecial } : {}),
     };
   }
 
@@ -541,15 +551,34 @@ export function createPane(
   /** 切走之前把这一份的光标与滚动（在预览里就是预览的滚动）留住。 */
   function stashCaret(): void {
     const file = activeFile();
-    if (!file) {
-      return;
+    if (file) {
+      stashView(file);
     }
+  }
+
+  /** 把正显示着的这一份的光标与滚动从 DOM 读回它身上。textarea / 预览藏着时（特殊标签盖着）滚动读出来是 0，不读。 */
+  function stashView(file: OpenFile): void {
     if (previewing(file)) {
-      file.previewScrollTop = el.preview.scrollTop;
+      if (!el.preview.classList.contains('hidden')) {
+        file.previewScrollTop = el.preview.scrollTop;
+      }
       return;
     }
     file.caret = el.area.selectionStart;
-    file.scrollTop = el.area.scrollTop;
+    if (!el.area.classList.contains('hidden')) {
+      file.scrollTop = el.area.scrollTop;
+    }
+  }
+
+  /** 换上这一份之后把它的光标与滚动放回去（新开的是 0：从顶上开始，不沿用上一份的偏移）。先落光标、再滚。 */
+  function restoreView(file: OpenFile): void {
+    if (previewing(file)) {
+      el.preview.scrollTop = file.previewScrollTop ?? 0;
+      return;
+    }
+    const caret = Math.min(file.caret, el.area.value.length);
+    el.area.setSelectionRange(caret, caret);
+    el.area.scrollTop = file.scrollTop || 0;
   }
 
   /**
@@ -683,7 +712,20 @@ export function createPane(
     return { view, carried: { ...carried, hash: file.hash, local: true } };
   }
 
+  /** 这一份要从这块里拿走了：光标与滚动记下来（正显示着的先从 DOM 读回来），这一页里再打开它时放回去。 */
+  function keepView(path: string): void {
+    const file = files.get(path);
+    if (!file) {
+      return;
+    }
+    if (file === shown) {
+      stashView(file);
+    }
+    rememberView(path, { caret: file.caret, scrollTop: file.scrollTop });
+  }
+
   function dropFile(path: string): void {
+    keepView(path);
     files.delete(path);
     conflicts.delete(path);
     diskSeen.delete(path);
@@ -700,8 +742,13 @@ export function createPane(
   // ---------------------------------------------------------------- 渲染
 
   function renderAll(): void {
-    renderTabs();
     const file = activeFile();
+    // 换了一份（或没了）：DOM 里还是上一份，先把它的光标与滚动留住；换上之后在下面放回这一份的。
+    const switched = file !== shown;
+    if (switched && shown) {
+      stashView(shown);
+    }
+    renderTabs();
     // 特殊标签：正显示着的那一个挂上、露出来，其余藏起来（画什么由那个模块管）。
     for (const id of specials) {
       const spec = specialTabOf(id);
@@ -741,6 +788,7 @@ export function createPane(
       el.statusFile.textContent = '';
       el.plotBtn.classList.add('hidden');
       el.draftBtn.classList.add('hidden');
+      shown = undefined;
       emitEditorChange({ type: 'render', pane });
       return;
     }
@@ -761,6 +809,10 @@ export function createPane(
     }
     if (showing) {
       showPreview(file);
+    }
+    if (switched) {
+      shown = file;
+      restoreView(file);
     }
 
     const dirty = file.draft !== file.text;
@@ -1610,6 +1662,7 @@ export function createPane(
       files.set(file.path, file);
       return;
     }
+    keepView(at);
     const entries = [...files.entries()];
     files.clear();
     for (const [path, f] of entries) {
@@ -1663,6 +1716,12 @@ export function createPane(
       file.gone = !!restore.gone;
       file.caret = restore.caret ?? 0;
       file.scrollTop = restore.scrollTop ?? 0;
+    }
+    // 这一页里关掉过（或临时标签被换掉过）：回到关掉时的光标与滚动。内容变了的话夹进新长度（`restoreView`）。
+    const seen = takeView(incoming.path);
+    if (seen && !restore?.local) {
+      file.caret = seen.caret;
+      file.scrollTop = seen.scrollTop;
     }
     return file;
   }

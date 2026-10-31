@@ -1,3 +1,16 @@
+/**
+ * `ChatController`：全部面板逻辑，按消息域拆在同目录模块里。收 `InMessage` → 调度 generation/、会话存储、
+ * 创作目标切换、设置读写 → 广播 `OutMessage`；经 `ViewHost` 与视图宿主解耦，多个宿主可以同时挂。
+ *
+ * - **并发控制在这一层**（`beginGeneration` / `stopGeneration`，`busy` 就是 `currentAbort !== undefined`）：生成那一层
+ *   无状态，单步与 MCP 调用共用同一把锁。
+ * - **动手前那一句问也在这一层**（gate.ts：产物落盘、外部 agent 的 `always` 动作、写章前的一致性预检）：画成对话里
+ *   的一张卡片，没答的记在 controller 上，重连时随全量状态重推。
+ * - 跨层命令（chat.ts）：设定右键「展开…」、`/落定设定`、`/续写大纲` 临时把目标换过去，跑完经 `awayOf` /
+ *   `returnTo` 回到原来的目标、阶段与能力（期间作者自己另选了目标就不动）。
+ * - 其余按域分文件：写作体检 check.ts、全书查找替换 bookFind.ts（按请求叫停，同一时刻只有一次替换）、
+ *   存档点 checkpoints.ts、设置 settings.ts、技能 skills.ts……
+ */
 import { listAttachmentChoices, selectionAttachmentOf } from '../files/attachments';
 import { readConfig, settingsContextDetail } from '../config';
 import { closeDatabase, installLogPersistence, readLogHistory } from '../runtime/db';
@@ -69,9 +82,8 @@ import {
   serializeSession,
 } from './serialize';
 import { pushSettings, saveSettings, selectModel, testConnection } from './settings';
-import { compareVersion, listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
+import { listVersions, mergeWithDisk, readVersion, saveVersion } from './versions';
 import {
-  compareCheckpointFile,
   pushCheckpointDiff,
   pushCheckpoints,
   restoreCheckpointFor,
@@ -542,14 +554,11 @@ export class ChatController {
       case 'readVersion':
         await readVersion(this, msg.path, msg.id, msg.requestId);
         return;
-      case 'compareVersion':
-        await compareVersion(this, msg.path, msg.id, msg.text, msg.requestId);
-        return;
       case 'saveVersion':
         await saveVersion(this, msg.path, msg.quiet === true);
         return;
 
-      // 存档点（controller/checkpoints.ts）：整本书存一版、跟现在比、单份对比、退回。
+      // 存档点（controller/checkpoints.ts）：整本书存一版、跟现在比、退回。
       case 'listCheckpoints':
         await pushCheckpoints(this);
         return;
@@ -561,9 +570,6 @@ export class ChatController {
         return;
       case 'checkpointDiff':
         await pushCheckpointDiff(this, msg.id);
-        return;
-      case 'compareCheckpointFile':
-        await compareCheckpointFile(this, msg.id, msg.path);
         return;
       case 'restoreCheckpoint':
         await restoreCheckpointFor(this, msg.request);

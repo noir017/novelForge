@@ -20,7 +20,7 @@ import { showTab } from './tabs';
 import { toast } from './toast';
 
 const EMPTY_HINT = '打开文件夹后即可使用';
-const SIDE_PANES = ['pane-chat', 'pane-project', 'pane-files', 'pane-history'];
+const SIDE_PANES = ['pane-chat', 'pane-project', 'pane-files', 'pane-versions', 'pane-history'];
 
 let fileName: string | null = null;
 let about: HTMLElement | undefined;

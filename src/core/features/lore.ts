@@ -1,3 +1,18 @@
+/**
+ * 设定条目的四件维护（建条目、整合、整理走 `loreSynthesis` 档，批量展开走 `setting` 档）：
+ *
+ * - 建条目 `buildLoreEntries`：名录里出现过、还没有条目的名字（「全部」只建出现 ≥2 章的）；原料是定稿细纲里
+ *   提到它的记录，**不重读正文**；建在分类目录里，记水位与 `bodyHash`。
+ * - 整合 `integrateLore`：水位之后的新事实并进条目，水位停在第一处没定稿或定稿后正文又改过的章之前；
+ *   机器写的可以直接采纳，作者改过的先对比；关键词只增不减（第 27 条）。
+ * - 按目录整理 `organizeLore`：模型出搬家清单，`checkOrganizePlan` 校验，作者看过才搬、只搬不改，不给外部 agent。
+ * - 批量展开 `expandLoreEntries`：只写 `loreBatchExpandable` 的（空的、占位的、机器写的薄条目），作者写过的跳过；
+ *   没有卡片、写完直接落盘，落盘前按磁盘再认一遍；子条目只建空条目、不接着展开。
+ *
+ * 都是按格式写、转写那一档照抄成 JSON；整理不出来这一条重写一次再转（`LORE_ENTRY_CALLS`，批量展开合计上限
+ * `LORE_EXPAND_BATCH_CALLS`）。原料、水位与「谁写的」在 views/loreMaterial.ts（装配器与名录要同一份，
+ * context/、views/ 不依赖 features/）。系统提示词在 lorePrompt.ts。
+ */
 import * as path from 'node:path';
 import { readConfig } from '../config';
 import { runPool, serialize } from '../runtime/concurrency';
