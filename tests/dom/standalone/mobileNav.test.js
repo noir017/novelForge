@@ -20,6 +20,16 @@ const assert = require('node:assert/strict');
 const { mount, JSDOM_SKIP, file, sampleChapterIndex, sampleTree, viewState } = require('../../helpers/dom');
 
 const wait = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+/**
+ * 等到 `cond()` 成立（最多 2 秒）。返回键那一套是几个定时器接力（对账 → history.go → popstate → 再对账）：机器一忙，接力的头一棒
+ * 晚到，写死的 20ms 与它同一轮到点、先醒，断言就跑在接力完之前（CI 上挂过）。要等「变成什么样」的一律用它。
+ */
+async function until(cond, ms = 2000) {
+  const end = Date.now() + ms;
+  while (!cond() && Date.now() < end) {
+    await wait(10);
+  }
+}
 const URL = `http://localhost/?project=${encodeURIComponent('/书/青云剑录')}`;
 const SHIMS = ['clipboard', 'scrollIntoView', 'pointerCapture', 'confirm', 'narrow'];
 
@@ -145,10 +155,10 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
   test('开着编辑区：历史里压一层；按返回收起编辑区，页面还在', async () => {
     const ui = phone();
     ui.clickEl(nav(ui, 'editor'));
-    await wait();
+    await until(() => depth(ui) === 1);
     assert.equal(depth(ui), 1);
     ui.window.history.back();
-    await wait();
+    await until(() => !editorOpen(ui));
     assert.equal(editorOpen(ui), false);
     assert.equal(depth(ui), 0);
   });
@@ -156,28 +166,28 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
   test('编辑区上再开一个菜单：压两层；按返回先收菜单、编辑区还在，再按才收编辑区', async () => {
     const ui = phone();
     ui.clickEl(nav(ui, 'editor'));
-    await wait();
+    await until(() => depth(ui) === 1);
     ui.rightClick(ui.doc.getElementById('wbEditor'));
-    await wait();
+    await until(() => depth(ui) === 2);
     assert.ok(ui.doc.querySelector('.ctx-menu'));
     assert.equal(depth(ui), 2);
     ui.window.history.back();
-    await wait();
+    await until(() => !ui.doc.querySelector('.ctx-menu') && depth(ui) === 1);
     assert.equal(ui.doc.querySelector('.ctx-menu'), null);
     assert.equal(editorOpen(ui), true);
     ui.window.history.back();
-    await wait();
+    await until(() => !editorOpen(ui));
     assert.equal(editorOpen(ui), false);
   });
 
   test('浮窗（细纲速览、名字的一句话之类）不另算一层：一碰就出、一动就收，窄窗口的桌面上鼠标划过就出一个', async () => {
     const ui = phone();
     ui.clickEl(nav(ui, 'editor'));
-    await wait();
+    await until(() => depth(ui) === 1);
     const tip = ui.doc.createElement('div');
     tip.className = 'summary-tip';
     ui.doc.body.appendChild(tip);
-    await wait();
+    await wait(50);
     assert.equal(depth(ui), 1);
     tip.remove();
   });
@@ -187,21 +197,21 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
     ui.clickEl(ui.doc.getElementById('wbMoreBtn'));
     pickDrop(ui, '文件');
     pickDrop(ui, '存档点…');
-    await wait();
+    await until(() => depth(ui) === 1);
     assert.ok(ui.doc.querySelector('.modal-overlay:not(.hidden)'));
     assert.equal(depth(ui), 1);
     ui.window.history.back();
-    await wait();
+    await until(() => !ui.doc.querySelector('.modal-overlay:not(.hidden)'));
     assert.equal(ui.doc.querySelector('.modal-overlay:not(.hidden)'), null);
   });
 
   test('不是按返回收掉的（点了底栏「工程」）：多压的那一条自己退掉', async () => {
     const ui = phone();
     ui.clickEl(nav(ui, 'editor'));
-    await wait();
+    await until(() => depth(ui) === 1);
     assert.equal(depth(ui), 1);
     ui.clickEl(tab(ui, 'project'));
-    await wait(40);
+    await until(() => depth(ui) === 0);
     assert.equal(depth(ui), 0);
     assert.equal(editorOpen(ui), false);
   });
@@ -209,7 +219,7 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
   test('nfBack()（Android 壳的返回键）：收掉一层回 true；什么都没开回 false', async () => {
     const ui = phone();
     ui.clickEl(nav(ui, 'editor'));
-    await wait();
+    await until(() => depth(ui) === 1);
     assert.equal(ui.window.nfBack(), true);
     assert.equal(editorOpen(ui), false);
     assert.equal(ui.window.nfBack(), false);
@@ -219,7 +229,7 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
     const ui = mount({ body: 'standalone', scripts: ['view.js', 'editor.js'], shims: ['clipboard', 'scrollIntoView', 'pointerCapture', 'confirm'], url: URL });
     ui.post({ type: 'state', state: viewState() });
     ui.rightClick(ui.doc.getElementById('wbEditor'));
-    await wait();
+    await wait(50);
     assert.ok(ui.doc.querySelector('.ctx-menu'));
     assert.equal(depth(ui), 0);
   });
@@ -228,7 +238,7 @@ describe('窄屏导航：返回键', { skip: JSDOM_SKIP }, () => {
     const ui = phone();
     Object.defineProperty(ui.window.navigator, 'userActivation', { configurable: true, value: { hasBeenActive: false } });
     ui.doc.body.classList.add('editor-open');
-    await wait();
+    await wait(50);
     assert.equal(depth(ui), 0);
   });
 });
