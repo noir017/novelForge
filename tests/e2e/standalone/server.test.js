@@ -996,7 +996,10 @@ describe('多窗口：每个窗口各开一个工程', () => {
 
   test('不带工程的首页跳到最近操作的那个工程', () => {
     assert.equal(redirect.status, 302);
-    assert.ok(new URL(redirect.headers.get('location')).searchParams.get('project'));
+    // 只写路径：反代后面 req.url 是 http，写全了会把 https 的页面跳回 http（Android 壳当外链开浏览器）
+    const location = redirect.headers.get('location');
+    assert.match(location, /^\/\?/);
+    assert.ok(new URL(location, 'http://x').searchParams.get('project'));
   });
 
   test('两个窗口各是各的工程', () => {
@@ -1090,7 +1093,7 @@ describe('令牌鉴权', () => {
   test('带 cookie：首页照常（跳到最近的工程）', async () => {
     const res = await fetch(`${authBase}/`, { headers: { cookie }, redirect: 'manual' });
     assert.equal(res.status, 302);
-    const page = await fetch(res.headers.get('location'), { headers: { cookie } });
+    const page = await fetch(new URL(res.headers.get('location'), authBase), { headers: { cookie } });
     assert.equal(page.status, 200);
     assert.ok((await page.text()).includes('/media/view.js'));
   });

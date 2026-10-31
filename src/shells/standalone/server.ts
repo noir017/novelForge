@@ -131,11 +131,13 @@ export async function startServer(opts: ServeOptions): Promise<number> {
         const project = url.searchParams.get('project')?.trim();
         // 不带工程的网址落到最近操作的那个工程上，并把它写进网址：之后刷新、重连都认这一个，
         // 别的窗口换了「最近操作」也不会把这个窗口带走。
+        // 只写路径：反代（https 终结在 nginx）后面 req.url 是 http，写全了会跳到 http 去，
+        // Android 壳看到源变了就当外链交给系统浏览器。
         const fallback = project ? undefined : hub.defaultRoot();
         if (fallback) {
           const target = new URL(url);
           target.searchParams.set('project', fallback);
-          return Response.redirect(target.toString(), 302);
+          return new Response(null, { status: 302, headers: { location: target.pathname + target.search } });
         }
         return new Response(standalonePage(project, PRODUCT_VERSION), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
