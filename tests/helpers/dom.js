@@ -99,8 +99,12 @@ const SHIMS = {
   confirm(window) {
     window.confirm = () => true;
   },
-  /** 窄屏（≤900px）：jsdom 没有 `matchMedia`，按宽度的那条媒体查询说成立，别的（深浅色偏好之类）不成立。脚本装载时就要问。 */
+  /**
+   * 窄屏（≤900px）：jsdom 没有 `matchMedia`，按宽度的那条媒体查询说成立，别的（深浅色偏好之类）不成立；视口宽度也说成手机的
+   * （`media/src/narrow.ts` 按 `innerWidth` 认）。脚本装载时就要问。
+   */
   narrow(window) {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, get: () => 412 });
     window.matchMedia = (query) => ({
       matches: /max-width:\s*900px/.test(query),
       media: query,

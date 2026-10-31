@@ -404,9 +404,23 @@ public class MainActivity extends Activity {
 
     // ── 返回键与生命周期 ───────────────────────────────────────────
 
-    /** 页面是单页，没有「上一页」可回；返回键弹出壳的菜单 */
+    /**
+     * 返回键先交给页面一层层收（菜单、弹窗、盖在侧栏上的编辑区，见 media/src/view/mobileNav.ts 的 nfBack）；
+     * 页面说没什么可收了（或者页面还没加载、开着的是连不上的提示），才弹壳的菜单
+     */
     @Override
     public void onBackPressed() {
+        // 提示页盖着网页（启动中、连不上）：底下那一页不是作者看得见的，不去收它的层
+        if (panel.getVisibility() == View.VISIBLE) {
+            showShellMenu();
+            return;
+        }
+        web.evaluateJavascript("typeof window.nfBack === 'function' && window.nfBack() === true", handled -> {
+            if (!"true".equals(handled)) showShellMenu();
+        });
+    }
+
+    private void showShellMenu() {
         new AlertDialog.Builder(this)
                 .setItems(new CharSequence[]{"服务端设置…", "退出 Novel Forge"}, (d, which) -> {
                     if (which == 0) showServerSettings(false);

@@ -39,6 +39,7 @@ import type {
 } from '../protocol';
 import { isTouchEvent, lastPointerWasTouch, trackPointer } from '../touch';
 import { onMessage } from '../vscodeApi';
+import { openChapterMessage } from '../narrow';
 import { claimRequest, newRequestId } from './replace';
 import { revealEditor } from './shell';
 import { panes, paneWithSpecial, registerSpecialTab } from './store';
@@ -707,7 +708,7 @@ function openChapter(no: number): void {
     toast(`第 ${no} 章还没有细纲，也没有正文。`);
     return;
   }
-  post({ type: 'openChapter', plotRelPath: path });
+  post(openChapterMessage(path));
 }
 
 function onOver(e: MouseEvent): void {

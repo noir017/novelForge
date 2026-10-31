@@ -49,6 +49,7 @@ import { SECTIONS } from './actions';
 import { showProjectTab } from './tabs';
 import type { ProjectTab } from './tabs';
 import { foldedVolumes, indentOf, lastTree, loreView, openFolders, openGroups } from './treeState';
+import { openChapterMessage } from '../../narrow';
 
 /**
  * 失败标记。有未解决的失败记录时插在文件名之前，鼠标移上去看原因
@@ -228,7 +229,7 @@ function buildPlotRow(p: ProjectPlotNode, nextNo: number, depth = 0): HTMLElemen
   // 由后端按能力决定开几份、旁边开细纲还是草稿（跟上一次走，细纲没有就按模板建）；「进入这一章」在右键菜单与行尾那颗按钮里。
   // 单击开成临时标签（下一次单击别的章换掉它），双击（第二下点击）开成正常标签——转正。
   label.addEventListener('click', (e) =>
-    vscode.postMessage({ type: 'openChapter', plotRelPath: p.relPath, ...(e.detail < 2 ? { preview: true } : {}) })
+    vscode.postMessage(openChapterMessage(p.relPath, e.detail < 2))
   );
   row.appendChild(label);
 

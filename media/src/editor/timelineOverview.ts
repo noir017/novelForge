@@ -22,6 +22,7 @@ import { onContextMenu, toast } from '../globals';
 import type { MenuItem, TimelineOverviewCommand } from '../globals';
 import type { InMessage, OutMessage, ProjectAction, TimelineOverview, TimelineOverviewCard, TimelineOverviewDay, TimelineOverviewEvent } from '../protocol';
 import { onMessage } from '../vscodeApi';
+import { openChapterMessage } from '../narrow';
 import { claimRequest, newRequestId } from './replace';
 import { revealEditor } from './shell';
 import { panes, paneWithSpecial, registerSpecialTab } from './store';
@@ -576,7 +577,7 @@ function cardMenu(c: TimelineOverviewCard): MenuItem[] {
     ...(d.last > c.no ? [{ label: `从这一章起重推（到第 ${d.last} 章）`, run: () => act('refreshTimeline', { range: { from: c.no, to: d.last } }) }] : []),
     { sep: true },
     // 正文进主区、细纲并排（同叙事线总览点格子）。
-    ...(c.chapterPath ? [{ label: '打开这一章', run: () => post({ type: 'openChapter', plotRelPath: c.chapterPath! }) }] : []),
+    ...(c.chapterPath ? [{ label: '打开这一章', run: () => post(openChapterMessage(c.chapterPath!)) }] : []),
     ...(c.plotPath ? [{ label: '打开细纲', run: () => openFile(c.plotPath!) }] : []),
     ...(d.exists ? [{ label: '打开时间线文件', run: () => openFile(d.relPath) }] : []),
   ];

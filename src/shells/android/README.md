@@ -3,7 +3,7 @@
 手机上的 Novel Forge。和桌面壳一样是**一层纯壳**：页面就是独立版的那一个（`src/shells/standalone/page.ts` 吐出来的，
 窄屏布局），壳只决定打开哪个地址，没有一行 TS。
 
-两种模式，第一次打开时选，之后按返回键 →「服务端设置…」随时换：
+两种模式，第一次打开时选，之后在返回键弹的菜单里点「服务端设置…」随时换（返回键先交给页面收菜单、弹窗、正文，见下）：
 
 - **本机**（内置服务）：app 里带着独立版打成的 node 单文件和 Termux 编的 node，起在 `127.0.0.1` 上，带每台设备随机生成的令牌，
   壳替作者走 `/login` 登录（`WebView.postUrl`），再打开首页。
@@ -66,7 +66,8 @@ libnode.so --use-bundled-ca --disable-warning=ExperimentalWarning files/server/s
   （`Bun.serve`），收在 `standalone/serve.ts` 里，没有 Bun 时走 `standalone/nodeServe.ts`（`node:http` + `ws`）；
   SQLite 本来就有 `node:sqlite` 兜底。Termux 的 nodejs-lts 是 24，自带 `node:sqlite`。
 - **为什么页面不打进 APK**：页面本来就由服务端吐，两种模式都只是打开一个网址；打进 APK 反而要和远程那台的版本对齐。
-  代价是服务端设置只能做成原生对话框（远程那台的页面不认识这个壳），入口是返回键——页面是单页，返回键没有「上一页」可回。
+  代价是服务端设置只能做成原生对话框（远程那台的页面不认识这个壳），入口是返回键：先问页面 `window.nfBack()`（`media/src/view/mobileNav.ts`）
+  收掉最上面一层（菜单、弹窗、盖在侧栏上的正文），页面说没什么可收了、或者开着的是壳自己的提示页，才弹「服务端设置… / 退出」。
 - **书放在哪**：node 只认文件路径、不认 `content://`，所以放公共目录要「所有文件访问」（Android 11+）或写存储权限（10 及以下，
   靠 `requestLegacyExternalStorage`）。第一次用本机模式时问一次，不给就放 `Android/data/<包名>/files/books`（卸载时一起删）。
   换了位置（之后才授权）服务会以新的家目录重起，最近打开的书记的是绝对路径，照样打得开。
@@ -80,7 +81,8 @@ libnode.so --use-bundled-ca --disable-warning=ExperimentalWarning files/server/s
 - 页面按触屏适配过（2026-10-24，Android 13 的 redroid 里实机走过一遍，做法见 [media/README.md「触屏与窄屏」](../../../media/README.md#触屏与窄屏手机android-壳)）：
   长按出右键菜单（WebView 长按会发 `contextmenu`，已实机确认）、菜单整个落在屏幕里、长按不选中界面上的字、软键盘弹出时
   输入框与光标那一行露得出来、名词 / 细纲 / 失败原因 / 叙事线总览的浮窗手指点或长按看得到。仍然看不到的：几处原生
-  `title=` 提示（行上的小圆点、时间线卡片上的完整日期）。「在外部打开」（`xdg-open`）在手机上什么都不做。
+  `title=` 提示（行上的小圆点、时间线卡片上的完整日期）。「在外部打开」（`xdg-open`）在手机上什么都不做，触屏上不显示这一项。
+- 返回键先收页面里的层（2026-10-31）：只在无头浏览器与 jsdom 里验过 `nfBack()`，壳这一侧（`evaluateJavascript` 回调）没在真机上走过。
 - redroid 里没有触屏设备，WebView 报的是 `(pointer: none)` 而不是 `(pointer: coarse)`；放大点击目标的样式两种都认，
   真手机上的 `coarse` 还没实测。
 - Android 12+ 有 phantom process killer：后台子进程吃 CPU 多了会被杀。node 大部分时间在等模型的网络流，待实机确认。

@@ -491,7 +491,7 @@ export class ChatController {
         return;
 
       case 'openChapter':
-        await openChapter(this, msg.plotRelPath, { preview: msg.preview === true });
+        await openChapter(this, msg.plotRelPath, { preview: msg.preview === true }, msg.beside !== false);
         return;
 
       case 'reviseChapter':

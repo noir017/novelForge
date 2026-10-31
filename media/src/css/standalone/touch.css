@@ -53,6 +53,11 @@
     user-select: text;
   }
 
+  /* 手指点过的页签留着悬停的底色（手机浏览器把 :hover 粘在最后点的那一下上），像是还按着。 */
+  .tab:hover {
+    background: none;
+  }
+
   /* 悬停才露出来的东西在手指下常显：没有「移上去」这回事，藏着就等于没有。 */
   .row-actions {
     opacity: 1;
@@ -65,6 +70,19 @@
   /* 没激活的标签上的 × 原本悬停才亮——看不见却点得着，手指一碰就关掉了一个标签。 */
   .ed-tab .ed-tab-close {
     opacity: 0.5;
+  }
+
+  /* 键盘快捷键的提示（菜单项右边的键、欢迎页与说明里的 Ctrl+…）：手机、平板上多半没有键盘，不提。 */
+  .wb-menu-kbd,
+  .kbd-hint,
+  .ed-welcome dl,
+  .nf-welcome dl {
+    display: none;
+  }
+
+  /* 「外部打开」用的是服务端那台机器上的程序，手机、平板上点了没反应。 */
+  .ed-external-btn {
+    display: none;
   }
 }
 
@@ -164,6 +182,15 @@
   .ed-chapter-bar {
     padding-top: 4px;
     padding-bottom: 4px;
+  }
+
+  /*
+   * 文字按钮（工程页组标题旁的「重建」「从正文提取」「补推时间」「总览」……）：字照旧，点击区往四周借——
+   * 内边距撑大、负外边距抵回去，那一行的行距不动。
+   */
+  button.link {
+    padding: 10px 4px;
+    margin: -10px -2px;
   }
 
   /* 对话页：流水线条的三格、输入框旁的按钮与下拉框（高度跟 --nf-ctl-height） */

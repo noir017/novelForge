@@ -23,9 +23,11 @@
  */
 import { el } from '../dom';
 import { FINALIZE_CALLS, PLOT_STAGE_LABEL, REVIEW_CALLS, WRITE_CALLS, describeCalls } from '../protocol';
-import type { ChapterAction, ChapterIndexEntry, InMessage } from '../protocol';
+import type { CallEstimate, ChapterAction, ChapterIndexEntry, InMessage } from '../protocol';
 import { SIDE_LABEL, onChapterIndex, pathOn } from './chapterIndex';
 import { goChapter, neighborsOf } from './chapterNav';
+import { menuButton, menuFromButtons } from './narrowTools';
+import { isNarrow, revealSide } from './shell';
 import { shortcutLabel } from './shortcuts';
 import { paneOwning } from './store';
 
@@ -68,26 +70,28 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
     bar.appendChild(navButton(1, around.next, around.side));
 
     const actions = el('span', 'ed-chapter-actions');
+    // 窄屏上底下这一排收起，条上一颗「操作 ▾」照着它们列菜单（narrowTools.ts）：悬停提示手机上看不到，调用次数写进菜单项。
+    bar.appendChild(menuButton(el('button', 'chip-btn ed-chapter-menu', '操作 ▾'), () => menuFromButtons(actions.querySelectorAll('button'))));
     const plotReady = row.plotExists && row.stage !== 'plot';
     actions.appendChild(
-      button('写这一章', 'write', plotReady && !written, plotReady ? describeCalls(WRITE_CALLS) : '先把这一章的细纲排好')
+      button('写这一章', 'write', plotReady && !written, plotReady ? describeCalls(WRITE_CALLS) : '先把这一章的细纲排好', plotReady ? briefCalls(WRITE_CALLS) : '先排好细纲')
     );
-    actions.appendChild(button('接着写', 'continue', written, `从末尾往下写，新写的追加在后面。${describeCalls(WRITE_CALLS)}`));
+    actions.appendChild(button('接着写', 'continue', written, `从末尾往下写，新写的追加在后面。${describeCalls(WRITE_CALLS)}`, briefCalls(WRITE_CALLS)));
     actions.appendChild(
-      button('重写', 'rewrite', written && row.plotExists, `照细纲整章重写，写入前会让你先对比。${describeCalls(WRITE_CALLS)}`)
-    );
-    actions.appendChild(
-      button('审稿', 'review', written, `逐条引原文挑出这一章的问题，逐项核对细纲的关键事件；只出报告，不改文件。${describeCalls(REVIEW_CALLS)}`)
+      button('重写', 'rewrite', written && row.plotExists, `照细纲整章重写，写入前会让你先对比。${describeCalls(WRITE_CALLS)}`, briefCalls(WRITE_CALLS))
     );
     actions.appendChild(
-      button('同步', 'finalize', written, `照正文更新细纲（带连续性事实），再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）、推这一章的故事时间。${describeCalls(FINALIZE_CALLS)}`)
+      button('审稿', 'review', written, `逐条引原文挑出这一章的问题，逐项核对细纲的关键事件；只出报告，不改文件。${describeCalls(REVIEW_CALLS)}`, briefCalls(REVIEW_CALLS))
+    );
+    actions.appendChild(
+      button('同步', 'finalize', written, `照正文更新细纲（带连续性事实），再更新出场角色的当前状态、认这一章在叙事线上发生了什么（带原文证据记下事件、更新各条线的当前进度，正文里新长出来的线也认出来）、推这一章的故事时间。${describeCalls(FINALIZE_CALLS)}`, briefCalls(FINALIZE_CALLS))
     );
 
-    // 另一份没开着：给一颗把它并排打开的按钮。
+    // 另一份没开着：给一颗把它并排打开的按钮。窄屏上没有第二块，开在同一块里成了另一个标签（editor/index.ts），不说「并排」。
     const onChapter = around.side === 'chapter';
     const other = onChapter ? (row.plotExists ? row.plotPath : '') : row.chapterPath;
     if (other && !paneOwning(other)) {
-      const pair = el('button', 'chip-btn ed-chapter-pair', onChapter ? '并排看细纲' : '并排看正文');
+      const pair = el('button', 'chip-btn ed-chapter-pair', `${isNarrow() ? '' : '并排'}看${onChapter ? '细纲' : '正文'}`);
       pair.addEventListener('click', () =>
         post({ type: 'openEditor', path: other, pane: onChapter ? 'draft' : 'main' })
       );
@@ -95,20 +99,35 @@ export function installChapterBar(stage: HTMLElement, post: (msg: InMessage) => 
     }
     bar.appendChild(actions);
 
-    function button(text: string, action: ChapterAction, enabled: boolean, hint: string): HTMLButtonElement {
+    function button(text: string, action: ChapterAction, enabled: boolean, hint: string, note: string): HTMLButtonElement {
       const b = el('button', 'chip-btn', text);
       b.dataset.action = action;
+      b.dataset.menuLabel = `${text}（${note}）`;
       b.disabled = !enabled;
       b.title = hint;
-      b.addEventListener('click', () => post({ type: 'chapterAction', plotRelPath: row.relPath, action }));
+      b.addEventListener('click', () => {
+        post({ type: 'chapterAction', plotRelPath: row.relPath, action });
+        // 生成在对话页流式输出、在那儿问写不写（后端同时切到对话页）：窄屏上编辑区盖着它，收下去。
+        if (isNarrow()) {
+          revealSide();
+        }
+      });
       return b;
     }
   }
 }
 
+/** 菜单项上写的调用次数：只写「预计几次」，最多几次与为什么留给确认框（菜单一行装不下）。 */
+function briefCalls(c: CallEstimate): string {
+  return describeCalls({ ...c, max: c.high, why: undefined });
+}
+
 /** 「‹ 上一章」「下一章 ›」。到头了禁用；相邻那一章还没有这一面时照样能点（点了说一句），提示里先写明。 */
 function navButton(step: -1 | 1, to: ChapterIndexEntry | undefined, side: 'chapter' | 'plot'): HTMLButtonElement {
-  const b = el('button', 'chip-btn ed-chapter-nav', step < 0 ? '‹ 上一章' : '下一章 ›');
+  const b = el('button', 'chip-btn ed-chapter-nav');
+  // 窄屏上只露箭头（「上一章」「下一章」那几个字收起，narrow.css）。
+  const word = el('span', 'ed-chapter-nav-word', step < 0 ? ' 上一章' : '下一章 ');
+  b.append(...(step < 0 ? ['‹', word] : [word, '›']));
   b.dataset.nav = step < 0 ? 'prev' : 'next';
   const key = shortcutLabel(step < 0 ? 'prevChapter' : 'nextChapter');
   b.disabled = !to;

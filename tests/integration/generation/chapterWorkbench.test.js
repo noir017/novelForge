@@ -5,6 +5,7 @@
  * |---|---|
  * | 有正文、有细纲、宿主能并排 | 正文开在主区，细纲并排——点一下就能对照着看 |
  * | 宿主不能并排 | 只开正文（能力探测，不判断是哪个壳） |
+ * | 前端眼下没有第二块（窄屏，`beside: false`） | 同样只开正文：并排的那份开进同一块会顶掉正文的临时标签 |
  * | 还没有正文 | 只开细纲 |
  * | 两样都没有 | 说找不到，不开一个空文件 |
  * | 有正文、还没有细纲（2026-10-23） | 按模板建一份空骨架（标题是章名、没有上游指纹）再并排开；建过一次再点就认它、不另建 |
@@ -95,11 +96,11 @@ after(() => {
   if (t) cleanup(t.dir, bundle?.db);
 });
 
-async function open(plotRelPath) {
+async function open(plotRelPath, extra = {}) {
   h.expect();
   beside = [];
   posted = [];
-  await controller.handle({ type: 'openChapter', plotRelPath });
+  await controller.handle({ type: 'openChapter', plotRelPath, ...extra });
   // 找不到时的那句话走面板的 toast（`c.toast` 推给前端），不走宿主的通知。
   const toasts = posted.filter((m) => m.type === 'toast').map((m) => `${m.level ?? 'info'}: ${m.message}`);
   return { opened: [...h.opened], beside: [...beside], toasts };
@@ -140,6 +141,12 @@ describe('openChapter', () => {
     } finally {
       h.host.openBeside = saved;
     }
+  });
+
+  test('前端说眼下没有第二块（窄屏，beside: false）：只开正文，不并排、不建细纲', async () => {
+    const r = await open(P1, { beside: false });
+    assert.deepEqual(r.opened, [CH1]);
+    assert.deepEqual(r.beside, []);
   });
 
   // 2026-10-18 的回归：分卷的书，细纲镜像正文的相对路径躺在 `summaries/第二卷/` 里。合并细纲与摘要那一次

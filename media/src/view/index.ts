@@ -17,6 +17,7 @@ import { renderSessions } from './history';
 import { appendLog, installLogs, prependLogHistory, renderLogs } from './logs';
 import { installMenubar } from './menubar';
 import { installMenus } from './menu';
+import { installMobileNav } from './mobileNav';
 import {
   bindPayload,
   buildContextDetails,
@@ -55,6 +56,7 @@ import { installForm } from './form';
 import { installCheckpoints, renderCheckpointDiff, renderCheckpoints } from './checkpoints';
 import { applyBookInspected, applyProjectCreated, applyWorkspaces, installWelcome } from './welcome';
 import { onMessage } from '../vscodeApi';
+import { openChapterMessage } from '../narrow';
 
 restoreDraft();
 exposeToast();
@@ -77,6 +79,7 @@ installLogs();
 installSettings();
 installWorkbench();
 installMenubar();
+installMobileNav();
 installWelcome();
 installFolderPicker();
 
@@ -227,7 +230,7 @@ onMessage((msg) => {
               label: open.label,
               run: () =>
                 vscode.postMessage(
-                  'sessionId' in open ? { type: 'openSession', id: open.sessionId } : { type: 'openChapter', plotRelPath: open.plotRelPath }
+                  'sessionId' in open ? { type: 'openSession', id: open.sessionId } : openChapterMessage(open.plotRelPath)
                 ),
             }
           : undefined

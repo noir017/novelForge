@@ -1,5 +1,6 @@
 /**
  * 独立版标题栏「文件 / 编辑 / 视图 / 帮助」。没有 `#wbMenubar` 就直接 return（插件）。
+ * 窄屏上这一排藏起来（narrow.css），标题栏右端的「⋯」先列这四个，点一个换成它的下拉、仍贴着「⋯」。
  *
  * 不复用右键菜单引擎：缺悬停切菜单和子菜单。
  */
@@ -12,6 +13,7 @@ import { quickOpenMenuEntry } from './quickOpenMenu';
 import { bookFindMenuEntry } from './bookFindMenu';
 import {
   closeFolder,
+  hideAbout,
   hideWelcome,
   openRecent,
   requestImportBook,
@@ -24,7 +26,7 @@ import {
 import { hasWorkspace, store, vscode } from './store';
 import { placeNear, visibleArea } from './menuPlace';
 import type { Placement } from './menuPlace';
-import { lastPointerWasTouch, trackPointer } from '../touch';
+import { lastPointerWasTouch, touchDevice, trackPointer } from '../touch';
 import { paragraphMenuEntries } from './paragraphMenu';
 import { shortcutsMenuEntry } from './shortcutsMenu';
 import { viewMenuEntries } from './viewMenu';
@@ -43,6 +45,8 @@ export interface MenuEntry {
   run?: () => void;
   /** 悬停提示（置灰时说为什么）。 */
   detail?: string;
+  /** 点了换成另一个菜单的下拉（窄屏「⋯」里的文件 / 编辑 / 视图 / 帮助），贴着同一颗按钮。 */
+  menu?: string;
 }
 
 export interface SubEntry {
@@ -58,6 +62,11 @@ export interface SubEntry {
 let openKey: string | null = null;
 let drop: HTMLElement | undefined;
 let subDrop: HTMLElement | undefined;
+/** 开着的下拉贴着的那颗按钮（菜单栏上的一个，或窄屏的「⋯」）。 */
+let anchor: HTMLElement | undefined;
+
+/** 窄屏「⋯」先列的那一层。 */
+const MORE_KEY = 'more';
 
 export function installMenubar(): void {
   const bar = document.getElementById('wbMenubar');
@@ -83,6 +92,17 @@ export function installMenubar(): void {
     openMenu(btn.dataset.menu, btn);
   });
 
+  const more = document.getElementById('wbMoreBtn');
+  more?.addEventListener('mousedown', keepFocus);
+  more?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (openKey !== null && anchor === more) {
+      closeMenubar();
+      return;
+    }
+    openMenu(MORE_KEY, more);
+  });
+
   // 已经开着一个菜单时移到别的菜单按钮上就换过去。手指点别的按钮之前补发的 mouseover 不算：
   // 不然先换过去、紧接着的 click 又看见「点的正是开着的那个」就把它关了——手指想换菜单却全关掉。
   bar.addEventListener('mouseover', (e) => {
@@ -101,6 +121,7 @@ export function installMenubar(): void {
     if (e.key === 'Escape') {
       closeMenubar();
       hideWelcome();
+      hideAbout();
     }
     // 键登记在 editor/shortcuts.ts（Ctrl+N 在浏览器里多半拦不住，那一条上写着）。组字中途的是输入法的。
     if (e.isComposing || e.keyCode === 229) {
@@ -123,6 +144,7 @@ export function installMenubar(): void {
 function openMenu(key: string, btn: HTMLElement): void {
   closeMenubar();
   openKey = key;
+  anchor = btn;
   btn.classList.add('open');
   // 功能模块自带的项接在后面（「编辑」里段落那一组，见 paragraphMenu.ts）。
   drop = buildDrop([...entriesOf(key), ...(key === 'edit' ? paragraphMenuEntries() : [])]);
@@ -145,6 +167,8 @@ function closeMenubar(): void {
   drop = undefined;
   subDrop?.remove();
   subDrop = undefined;
+  anchor?.classList.remove('open');
+  anchor = undefined;
   for (const btn of document.querySelectorAll('.wb-menu-btn.open')) {
     btn.classList.remove('open');
   }
@@ -154,6 +178,16 @@ function entriesOf(key: string): MenuEntry[] {
   const ws = hasWorkspace();
   const editing = isEditing();
   const ed = queryEditor();
+  // 手机、平板上没用的几项不列（touch.ts 的 touchDevice）。
+  const desktop = !touchDevice();
+  if (key === MORE_KEY) {
+    return [
+      { label: '文件', menu: 'file' },
+      { label: '编辑', menu: 'edit' },
+      { label: '视图', menu: 'view' },
+      { label: '帮助', menu: 'help' },
+    ];
+  }
   if (key === 'file') {
     return [
       { label: '新建文件', action: 'newFile', disabled: !ws, kbd: shortcutLabel('newFile') },
@@ -180,8 +214,7 @@ function entriesOf(key: string): MenuEntry[] {
       { label: 'sep' },
       { label: '关闭编辑器', action: 'closeEditor', disabled: !ed.hasFile },
       { label: '关闭文件夹', action: 'closeFolder', disabled: !ws },
-      { label: 'sep' },
-      { label: '退出', action: 'quit' },
+      ...(desktop ? [{ label: 'sep' }, { label: '退出', action: 'quit' }] : []),
     ];
   }
   if (key === 'view') {
@@ -208,7 +241,7 @@ function entriesOf(key: string): MenuEntry[] {
     { label: '欢迎页面', action: 'welcome' },
     { label: '使用说明', action: 'readme' },
     shortcutsMenuEntry(),
-    { label: '打开日志目录', action: 'openLogDir' },
+    ...(desktop ? [{ label: '打开日志目录', action: 'openLogDir' }] : []),
     { label: 'sep' },
     { label: '关于', action: 'about' },
   ];
@@ -245,10 +278,18 @@ function buildDrop(entries: MenuEntry[], submenu = false): HTMLElement {
     btn.appendChild(mk('span', 'wb-menu-label', entry.label));
     if (entry.kbd) {
       btn.appendChild(mk('span', 'wb-menu-kbd', entry.kbd));
-    } else if (entry.submenu) {
+    } else if (entry.submenu || entry.menu) {
       btn.appendChild(mk('span', 'wb-menu-arrow', '›'));
     }
-    if (entry.submenu) {
+    if (entry.menu) {
+      const key = entry.menu;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (anchor) {
+          openMenu(key, anchor);
+        }
+      });
+    } else if (entry.submenu) {
       // 置灰的子菜单不展开（「段落格式」在没开工程时就是这样）。
       // 手指点之前补发的 mouseenter 不展开：窄屏上子菜单会贴边盖住手指底下这一点，紧跟着的 click 就落到子菜单的某一项上
       // （Android 实机上点「打开最近打开的」直接打开了最近的第一本书）。手指靠下面的 click 展开。

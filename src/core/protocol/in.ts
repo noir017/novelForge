@@ -119,8 +119,9 @@ export type InMessage =
    * 草稿就开这一章的草稿）。宿主没有「并排打开」这一项能力时只开一份。收的是这一章的细纲路径（还没有细纲时是它
    * 应该在的位置）或章节路径。
    * `preview`：工程页单击那一行的名字，两份都开成临时标签（原样带回 `editorOpen`）。
+   * `beside: false`：这个窗口眼下没有第二块编辑区（窄屏），只开正文、不并排开细纲或草稿。
    */
-  | { type: 'openChapter'; plotRelPath: string; preview?: boolean }
+  | { type: 'openChapter'; plotRelPath: string; preview?: boolean; beside?: boolean }
   /**
    * 章节工作台工具条上的按钮：对这一章做一件事。`write` / `continue` / `rewrite` 等于对这一章
    * 按下主按钮（切到它的正文层、按那种写法发一轮生成），`finalize` 走定稿。

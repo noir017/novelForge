@@ -6,6 +6,7 @@
  * 而不是共用层。
  */
 import { byId } from '../dom';
+import { narrowScreen } from '../narrow';
 
 const THEME_KEY = 'novelforge.theme';
 const WIDTH_KEY = 'novelforge.sideWidth';
@@ -13,12 +14,9 @@ const DRAFT_WIDTH_KEY = 'novelforge.draftWidth';
 
 const DEFAULT_SIDE_WIDTH = 460;
 const DEFAULT_DRAFT_WIDTH = 420;
-/** 窄屏阈值，与 standalone.css 的 media query 保持一致。 */
-const NARROW_WIDTH = 900;
 
 export interface Shell {
   themeBtn: HTMLElement;
-  editorToggle: HTMLElement;
   side: HTMLElement;
   resizer: HTMLElement;
   editors: HTMLElement;
@@ -28,7 +26,6 @@ export interface Shell {
 export function collectShell(): Shell {
   return {
     themeBtn: byId('wbThemeBtn'),
-    editorToggle: byId('wbEditorToggle'),
     side: byId('wbSide'),
     resizer: byId('wbResizer'),
     editors: byId('wbEditors'),
@@ -194,15 +191,12 @@ export function initResizers(shell: Shell): void {
 
 // ---------------------------------------------------------------- 窄屏
 
-export function initNarrowToggle(shell: Shell): void {
-  shell.editorToggle.addEventListener('click', () => {
-    document.body.classList.toggle('editor-open');
-  });
-}
+/** 窄屏：编辑区是盖在侧栏上的一层，底栏「正文」翻它上来（view/mobileNav.ts），草稿区不显示。 */
+export const isNarrow = narrowScreen;
 
 /** 窄屏下编辑区是覆盖层，打开文件时得把它翻上来。 */
 export function revealEditor(): void {
-  if (window.innerWidth <= NARROW_WIDTH) {
+  if (isNarrow()) {
     document.body.classList.add('editor-open');
   }
 }

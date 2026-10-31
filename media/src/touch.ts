@@ -52,5 +52,13 @@ export function isTouchEvent(e: Event): boolean {
  * 只管「顺手放焦点」的那几处；作者明确要打字的（弹窗里的输入框、挑了命令之后的对话输入框、「预览」切回「编辑」）照旧聚焦。
  */
 export function avoidSoftKeyboard(): boolean {
-  return lastPointerWasTouch() || !!window.matchMedia?.('(hover: none)').matches;
+  return lastPointerWasTouch() || touchDevice();
+}
+
+/**
+ * 整台设备的主要指针不能悬停（手机、平板），与样式里的 `(hover: none)` 同一条。只在桌面上管用的入口（「退出」关不掉手机浏览器的
+ * 标签页，「打开日志目录」开在服务端那台机器上）在这种设备上不列。
+ */
+export function touchDevice(): boolean {
+  return !!window.matchMedia?.('(hover: none)').matches;
 }

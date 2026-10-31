@@ -49,6 +49,11 @@ export interface TabItem {
   dotId?: string;
   /** 圆点的额外 class（如 `err`）。 */
   dotClass?: string;
+  /**
+   * 不是一页，是窄屏底栏上的一颗导航键（独立版的「正文」「更多」）：写成 `data-nav` 而不是 `data-tab`，
+   * 页签切换不认它，由 `media/src/view/mobileNav.ts` 接手。
+   */
+  nav?: boolean;
 }
 
 export function escapeHtml(text: string): string {
@@ -82,7 +87,8 @@ export function tabbar(items: TabItem[]): string {
       const dot = item.dotId
         ? `<span class="tab-dot${item.dotClass ? ` ${item.dotClass}` : ''} hidden" id="${item.dotId}"></span>`
         : '';
-      return `  <button class="tab${i === 0 ? ' active' : ''}" data-tab="${item.tab}">${icon}${label}${dot}</button>`;
+      const key = item.nav ? 'data-nav' : 'data-tab';
+      return `  <button class="tab${i === 0 && !item.nav ? ' active' : ''}" ${key}="${item.tab}">${icon}${label}${dot}</button>`;
     })
     .join('\n');
   return `<nav class="tabbar" id="tabbar">\n${buttons}\n</nav>`;
@@ -91,7 +97,7 @@ export function tabbar(items: TabItem[]): string {
 /** 对话页：流水线条 + 消息流 + 下一步 + 输入区。 */
 export function chatPane(opts: PaneOptions = {}): string {
   const editorHint = opts.builtinEditor
-    ? '\n      <p>右侧是内置编辑器：在「工程」页点任意文件即可打开编辑，<kbd>Ctrl</kbd>+<kbd>S</kbd> 保存。</p>'
+    ? '\n      <p>在「工程」页点任意文件即可在内置编辑器里打开编辑<span class="kbd-hint">，<kbd>Ctrl</kbd>+<kbd>S</kbd> 保存</span>。</p>'
     : '';
   const selTitle = opts.selectionFromEditor
     ? '把编辑器中选中的文字加入上下文'
@@ -124,7 +130,7 @@ export function chatPane(opts: PaneOptions = {}): string {
   <div class="messages" id="messages">
     <div class="empty" id="emptyHint">
       <p><strong>跟着输入框上方的主按钮走：它永远是这本书现在该做的那一步</strong></p>
-      <p>从一句话开始：先生成小说配置、故事前提、角色图谱、世界观与设定清单，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键「进入这一章」，或用下面的下拉框选它；下拉框最上面的「全书」回到架构与大纲那一层。</p>
+      <p>从一句话开始：先生成小说配置、故事前提、角色图谱、世界观与设定清单，再排情节大纲、拆细纲，最后一章一章写正文。想接着写某一章，在「工程」页右键（手机上长按）「进入这一章」，或用下面的下拉框选它；下拉框最上面的「全书」回到架构与大纲那一层。</p>
       <p>用 <kbd>@</kbd> 引用正文、角色卡或任意文件；在输入框里打 <kbd>/</kbd> 可以挑其它命令，「/续写大纲」在哪一层都能用。</p>${editorHint}
     </div>
     <!-- 打开的文件夹还不是小说工程：消息区只放这一块（W12）。由 #messages 上的 uninit 类切换。 -->
@@ -222,7 +228,7 @@ export function filesPane(): string {
     <button class="icon-btn" id="filesRefresh" title="刷新">⟳</button>
   </div>
   <div class="fx-body" id="filesBody"></div>
-  <div class="hint fx-foot">这里是工程目录的原样结构，含 <code>.novelforge/</code> 等点开头的文件夹。文本文件在右侧编辑器打开，其余交系统程序。</div>
+  <div class="hint fx-foot">这里是工程目录的原样结构，含 <code>.novelforge/</code> 等点开头的文件夹。文本文件在内置编辑器里打开，其余交系统程序。</div>
 </section>`;
 }
 

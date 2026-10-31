@@ -66,21 +66,25 @@ export function standalonePage(root?: string, version = '0.0.0'): string {
   </nav>
   <span class="wb-title-text" id="wbTitleText">Novel Forge</span>
   <span class="spacer"></span>
-  <button class="icon-btn" id="wbEditorToggle" title="显示/隐藏编辑器">▤</button>
   <button class="icon-btn" id="wbThemeBtn" title="切换主题">☀</button>
+  <!-- 窄屏上菜单栏收进这一颗（view/menubar.ts）；宽屏不显示。 -->
+  <button type="button" class="icon-btn" id="wbMoreBtn" title="菜单" aria-label="菜单">⋯</button>
 </header>
 
 <div class="wb-main">
 
   <!-- ---------------------------------------------------------- 活动栏 -->
+  <!-- 窄屏上它是底栏（narrow.css）：「正文」「更多」只在那儿出现，文件 / 历史 / 日志 / 设置收进「更多」（view/mobileNav.ts）。 -->
 ${tabbar([
   { tab: 'chat', label: '对话', icon: '✎' },
   { tab: 'project', label: '工程', icon: '❐', dotId: 'projectStaleDot' },
+  { tab: 'editor', label: '正文', icon: '¶', nav: true },
   { tab: 'files', label: '文件', icon: '🗀' },
   { tab: 'versions', label: '版本', icon: '±' },
   { tab: 'history', label: '历史', icon: '◷' },
   { tab: 'logs', label: '日志', icon: '☰', dotId: 'logsErrorDot', dotClass: 'err' },
   { tab: 'settings', label: '设置', icon: '⚙' },
+  { tab: 'more', label: '更多', icon: '⋯', nav: true },
 ])}
 
   <!-- ---------------------------------------------------------- 侧栏 -->
@@ -120,7 +124,7 @@ ${settingsPane(caps)}
       <button class="chip-btn hidden" id="edPlotBtn" title="打开这一章的细纲（并排；还没有就按模板建一份）">细纲</button>
       <button class="chip-btn hidden" id="edDraftBtn" title="打开这一章的草稿（并排）">草稿</button>
       <button class="chip-btn" id="edRevertBtn" title="放弃修改，重新从磁盘读取">还原</button>
-      <button class="chip-btn" id="edExternalBtn" title="用系统默认程序打开">外部打开</button>
+      <button class="chip-btn ed-external-btn" id="edExternalBtn" title="用系统默认程序打开">外部打开</button>
       <button class="primary" id="edSaveBtn" title="保存（Ctrl+S）">保存</button>
     </div>
 
@@ -164,10 +168,10 @@ ${settingsPane(caps)}
       <div class="ed-welcome" id="edWelcome">
         <span class="ed-welcome-logo">${LOGO_SVG}</span>
         <h2>还没有打开文件</h2>
-        <p>在左侧「工程」页点章节、角色卡或设定条目即可在这里编辑；模型采纳写入后也会自动打开。</p>
+        <p>在「工程」页点章节、角色卡或设定条目即可在这里编辑；模型采纳写入后也会自动打开。</p>
         <dl>
           <dt><kbd>Ctrl</kbd>+<kbd>S</kbd></dt><dd>保存当前文件</dd>
-          <dt><kbd>Enter</kbd></dt><dd>在左侧发送消息</dd>
+          <dt><kbd>Enter</kbd></dt><dd>在对话页发送消息</dd>
           <dt><kbd>@</kbd></dt><dd>引用章节 / 角色 / 设定</dd>
         </dl>
       </div>

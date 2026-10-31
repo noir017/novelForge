@@ -11,6 +11,7 @@ import { el as mk } from '../dom';
 import { confirmProceedIfDirty, resetEditor, windowProject } from '../globals';
 import { bookDirName } from '../protocol';
 import type { BookInspection, WorkspaceItem, WorkspaceRecent } from '../protocol';
+import { narrowScreen } from '../narrow';
 import { pickHostPath } from './folderPicker';
 import { openForm } from './form';
 import { showProjectTab } from './project/tabs';
@@ -243,17 +244,21 @@ export function showWelcome(): void {
 }
 
 /**
- * 窄屏（≤900px，与 `narrow.css`、`editor/shell.ts` 的 `NARROW_WIDTH` 同一个界）上编辑区是收着的覆盖层，欢迎页在它里面：
+ * 窄屏（`../narrow.ts`）上编辑区是收着的覆盖层，欢迎页在它里面：
  * 要给人看就得翻上来，与编辑器打开文件时的 `revealEditor` 是同一个类。宽屏上编辑区常驻，什么都不做。
  */
 function revealNarrowEditor(): void {
-  if (window.matchMedia?.('(max-width: 900px)').matches) {
+  if (narrowScreen()) {
     document.body.classList.add('editor-open');
   }
 }
 
 export function hideWelcome(): void {
   document.body.classList.remove('show-welcome');
+}
+
+export function hideAbout(): void {
+  about?.classList.remove('open');
 }
 
 export function showAbout(): void {

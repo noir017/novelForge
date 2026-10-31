@@ -1,32 +1,123 @@
-/* 窄屏（≤900px）：编辑区改成覆盖层，活动栏回到水平排布。 */
+/* 窄屏（≤900px）：活动栏成了底栏，编辑区成了盖在侧栏上的一层，标题栏只留书名与「⋯」。 */
 
 /*
- * 窄屏（手机/分屏）没有并排的余地：编辑区改成覆盖层，
- * 由标题栏的「编辑器」按钮切换；活动栏回到水平排布。
+ * 窄屏（手机 / 分屏）没有并排的余地：侧栏占满，编辑区改成覆盖层，由底栏「正文」翻上来（view/mobileNav.ts）；
+ * 活动栏排到底下、拇指够得着，只露对话 · 工程 · 正文 · 版本 · 更多，文件 / 历史 / 日志 / 设置收进「更多」。
  */
 @media (max-width: 900px) {
+  /* 底栏高度（编辑区那层的下沿跟它走）；编辑区与预览的内边距收窄一点：改的是 look.css 那一组变量，textarea 与镜像层一起跟着变。 */
+  :root {
+    --nf-nav-height: 56px;
+    --nf-ed-pad-x: 16px;
+    --nf-ed-pad-y: 14px;
+  }
+
+  /* 软键盘弹着、正在打字（mobileNav.ts 挂 kb-open）：底栏让出来，编辑区那层跟着落到底。 */
+  body.kb-open {
+    --nf-nav-height: 0px;
+  }
+
+  body.kb-open .tabbar {
+    display: none;
+  }
+
+  /* 专注模式藏起了底栏（focus.css），编辑区同样落到底。 */
+  body.nf-focus {
+    --nf-nav-height: 0px;
+  }
+
+  /* ---- 底栏：.wb-main 是竖排，order 把活动栏排到侧栏下面 */
+
   .workbench .tabbar {
+    order: 1;
     flex-direction: row;
+    align-items: stretch;
+    gap: 0;
     width: auto;
-    flex: 0 0 auto;
+    height: var(--nf-nav-height);
+    flex: 0 0 var(--nf-nav-height);
+    padding: 0;
     border-right: none;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    border-bottom: none;
+    border-top: 1px solid var(--vscode-panel-border);
   }
 
   .workbench .tab {
-    flex-direction: row;
-    gap: 5px;
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 0;
     border-left: none;
-    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    font-size: 11px;
+  }
+
+  /* 当前那一页：图标底下垫一块（底栏惯例），不画边线。 */
+  .workbench .tab .tab-icon {
+    padding: 2px 16px;
+    border-radius: 12px;
   }
 
   .workbench .tab.active {
     border-left-color: transparent;
-    border-bottom-color: var(--vscode-focusBorder);
+    background: transparent;
+  }
+
+  .workbench .tab.active .tab-icon,
+  body.editor-open .tab[data-nav='editor'] .tab-icon,
+  body:not(.editor-open) .tabbar:has(.tab.active:is([data-tab='files'], [data-tab='history'], [data-tab='logs'], [data-tab='settings']))
+    .tab[data-nav='more']
+    .tab-icon {
+    background: var(--vscode-list-activeSelectionBackground);
+  }
+
+  body.editor-open .tab[data-nav='editor'],
+  body:not(.editor-open) .tabbar:has(.tab.active:is([data-tab='files'], [data-tab='history'], [data-tab='logs'], [data-tab='settings']))
+    .tab[data-nav='more'] {
+    color: var(--vscode-foreground);
+  }
+
+  /* 编辑区盖着侧栏时，侧栏那一页的页签不亮（亮的是「正文」）。 */
+  body.editor-open .tab.active {
+    color: var(--vscode-descriptionForeground);
+  }
+
+  body.editor-open .tab.active .tab-icon {
+    background: transparent;
+  }
+
+  .workbench .tab:is([data-tab='files'], [data-tab='history'], [data-tab='logs'], [data-tab='settings']) {
+    display: none;
+  }
+
+  /* 日志里有没看过的错误：红点也挂到「更多」上（日志那颗藏着）。 */
+  .tabbar:has(#logsErrorDot:not(.hidden)) .tab[data-nav='more']::after {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: calc(50% - 20px);
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--vscode-errorForeground);
+  }
+
+  .workbench .tab-dot {
+    top: 6px;
+    right: calc(50% - 20px);
   }
 
   .wb-main {
     flex-direction: column;
+  }
+
+  /* 提示条浮在底栏上面，不盖住它。 */
+  .workbench .toast {
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--nf-nav-height) + 10px);
+    max-width: none;
   }
 
   .wb-side {
@@ -39,39 +130,14 @@
     display: none;
   }
 
-  /* 窄屏放不下两块并列的编辑区：草稿区整块收起，只留主区那层覆盖。 */
-  .wb-editors {
-    display: contents;
-  }
+  /* ---- 标题栏：菜单栏收进右端的「⋯」（view/menubar.ts），书名占满中间 */
 
-  .wb-editor-draft {
+  .wb-menubar {
     display: none;
-  }
-
-  .wb-editor {
-    position: fixed;
-    inset: var(--nf-title-height) 0 0;
-    z-index: 15;
-    display: none;
-    box-shadow: var(--nf-shadow);
-  }
-
-  body.editor-open .wb-editor {
-    display: flex;
-  }
-
-  body.editor-open .wb-editor-draft {
-    display: none;
-  }
-
-  /* 编辑区与预览的内边距收窄一点：改的是 look.css 那一组变量，textarea 与镜像层一起跟着变。 */
-  :root {
-    --nf-ed-pad-x: 16px;
-    --nf-ed-pad-y: 14px;
   }
 
   /*
-   * 标题栏：完整目录换成书名（view/welcome.ts 两份都写着），菜单收紧一点。360px 宽时菜单与两颗按钮占去两百多像素，
+   * 完整目录换成书名（view/welcome.ts 两份都写着）。360px 宽时菜单与两颗按钮占去两百多像素，
    * 工程目录只露得出 `/storage/emulated/0/Docu…`。
    */
   .wb-title-full {
@@ -82,66 +148,99 @@
     display: inline;
   }
 
-  .wb-menu-btn {
-    padding: 0 7px;
+  .wb-title-text {
+    margin-left: 10px;
+    color: var(--vscode-foreground);
+    font-size: 15px;
+    font-weight: 600;
   }
 
-  .wb-title-text {
-    margin-left: 4px;
+  #wbMoreBtn {
+    font-size: 1.3em;
+  }
+
+  /* ---- 编辑区：盖在侧栏上，上沿是标题栏、下沿是底栏 */
+
+  /* 窄屏放不下两块并列的编辑区：草稿区整块收起，只留主区那层覆盖（要并排开的细纲、草稿开在主区，editor/index.ts）。 */
+  .wb-editors {
+    display: contents;
+  }
+
+  .wb-editor-draft {
+    display: none;
+  }
+
+  .wb-editor {
+    position: fixed;
+    inset: var(--nf-title-height) 0 var(--nf-nav-height);
+    z-index: 15;
+    display: none;
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
+
+  body.editor-open .wb-editor {
+    display: flex;
+  }
+
+  body.editor-open .wb-editor-draft {
+    display: none;
   }
 
   /*
-   * 编辑区顶上的工具栏与章节条：一行装不下就横着滚（按钮不缩、字不折），不往下折行占掉正文的高度。
-   * 从前按钮把面包屑与章节说明挤成 0 宽，「保存」「同步」伸出右边、点不到。
+   * 顶上只留标签条与章节条两行（editor/narrowTools.ts）：工具栏那一行收起，按钮挪进标签条末尾的「⋯」，
+   * 「保存」在它前面单留一颗；章节条底下那一排动作收进条上的「操作 ▾」，上一章 / 下一章只露箭头。
    */
   .ed-toolbar {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
+    display: none;
   }
 
-  .ed-toolbar::-webkit-scrollbar {
-    height: 0;
+  .ed-tabs-save,
+  .ed-tabs-tools {
+    flex: 0 0 auto;
   }
 
-  .ed-toolbar > * {
-    flex-shrink: 0;
+  .ed-tabs-save {
+    align-self: center;
+    margin: 0 4px;
   }
 
-  /* 面包屑留出能读的一截；「保存」挪到它后面第一个，不用滚就点得到。 */
-  .ed-path {
-    order: -2;
-    flex: 1 0 8em;
-    max-width: 55%;
+  .ed-tabs-tools {
+    width: 40px;
+    padding: 0;
+    border: none;
+    border-left: 1px solid var(--vscode-panel-border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--vscode-foreground);
+    font-size: 1.2em;
   }
 
-  .ed-toolbar > .primary {
-    order: -1;
+  .ed-tabs-save.hidden,
+  .ed-tabs-tools.hidden {
+    display: none;
   }
 
-  /* 章节条两行：上一章 · 这一章的说明 · 下一章；底下一行是对这一章能做的几件事，横着滚。 */
   .ed-chapter-bar {
-    flex-wrap: wrap;
-    row-gap: 4px;
+    gap: 6px;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 
-  .ed-chapter-actions {
-    order: 1;
-    flex: 1 1 100%;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .ed-chapter-actions,
+  .ed-chapter-nav-word {
+    display: none;
   }
 
-  .ed-chapter-actions::-webkit-scrollbar {
-    height: 0;
+  .ed-chapter-nav {
+    min-width: 36px;
+    font-size: 1.15em;
   }
 
-  .ed-chapter-actions > * {
-    flex-shrink: 0;
+  .ed-chapter-menu {
+    flex: 0 0 auto;
   }
 
-  /* 状态栏：文件名让位（标签与面包屑上都有），其余各格不折行；还放不下就横着滚。 */
+  /* 状态栏：文件名与行列让位（标签上有文件名，手机上不按行列找字），其余各格不折行；还放不下就横着滚。 */
   .ed-status {
     gap: 10px;
     padding: 4px 10px;
@@ -166,6 +265,16 @@
     text-overflow: ellipsis;
   }
 
+  #edStatusPos {
+    display: none;
+  }
+
+  /* 正在打字：章节条也让出来（标签条、状态栏留着），键盘上面多几行字。对话页同理，收起流水线条、下一步与输入框底下那行小字。 */
+  body.kb-open:has(.ed-area:focus) .ed-chapter-bar,
+  body.kb-open:has(#input:focus) :is(.pipeline, .nextstep, .composer-meta) {
+    display: none;
+  }
+
   /*
    * 欢迎页在编辑区里（.ed-stage），窄屏上编辑区是收着的覆盖层：「帮助 → 欢迎页面」与刚变成空窗口时由 view/welcome.ts
    * 把它翻上来（加 editor-open）。三栏在窄屏上排成一栏。
@@ -187,24 +296,36 @@
 }
 
 /*
- * 软键盘弹出来、可视高度只剩三百来像素时，正在对话输入框（或编辑区）里打字：收起活动栏、流水线条、下一步那一行与输入框底下那行小字，
- * 把高度让给输入框与「发送」——不收的话 360×640 的手机上「发送」那一行正好压在键盘底下（Android 壳是 adjustResize，
- * 整页跟着变矮，矮到装不下时被裁掉的是最底下那几行）。只在焦点在输入框里时收，横屏不打字时活动栏照常在。
+ * 可视高度很矮（横屏、或软键盘弹出来只剩三百来像素）时，正在对话输入框（或编辑区）里打字：收起活动栏、流水线条、下一步那一行与
+ * 输入框底下那行小字，把高度让给输入框与「发送」——不收的话 360×640 的手机上「发送」那一行正好压在键盘底下（Android 壳是
+ * adjustResize，整页跟着变矮，矮到装不下时被裁掉的是最底下那几行）。只在焦点在输入框里时收，横屏不打字时活动栏照常在。
+ * 竖屏上键盘弹没弹出来由 mobileNav.ts 量（`kb-open`），上面那一段管。
  */
 @media (max-width: 900px) and (max-height: 480px) {
   body.workbench:has(#input:focus) :is(.tabbar, .pipeline, .nextstep, .composer-meta) {
     display: none;
   }
 
-  /* 编辑区同理：光标在正文里时收起章节条与工具栏（标签条、状态栏留着），不然键盘上面只剩两三行字。 */
-  body.workbench:has(.ed-area:focus) :is(.ed-chapter-bar, .ed-toolbar) {
+  /* 编辑区同理：光标在正文里时收起章节条、工具栏与底栏（标签条、状态栏留着），不然键盘上面只剩两三行字。 */
+  body.workbench:has(.ed-area:focus) :is(.ed-chapter-bar, .ed-toolbar, .tabbar) {
     display: none;
+  }
+
+  body.workbench:has(#input:focus, .ed-area:focus) {
+    --nf-nav-height: 0px;
   }
 }
 
-/* 宽屏时标题栏的「编辑器」开关无用（编辑区常驻）。 */
+/*
+ * 宽屏：底栏的「正文」「更多」、标题栏的「⋯」、标签条末尾的「保存」「⋯」与章节条的「操作 ▾」都用不着（编辑区常驻、菜单栏与工具栏都在）。
+ * 按钮写成 `button.…`：`button.primary` / `button.chip-btn` 自带 `display: inline-flex`，只写类名压不过它。
+ */
 @media (min-width: 901px) {
-  #wbEditorToggle {
+  .tab[data-nav],
+  #wbMoreBtn,
+  button.ed-tabs-save,
+  button.ed-tabs-tools,
+  button.ed-chapter-menu {
     display: none;
   }
 }

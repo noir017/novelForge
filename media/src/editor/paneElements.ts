@@ -168,7 +168,7 @@ export function createPaneElements(welcomeText: string): PaneRefs {
   const draftBtn = el('button', 'chip-btn hidden', '草稿');
   const revertBtn = el('button', 'chip-btn', '还原');
   revertBtn.title = '放弃修改，重新从磁盘读取';
-  const externalBtn = el('button', 'chip-btn', '外部打开');
+  const externalBtn = el('button', 'chip-btn ed-external-btn', '外部打开');
   externalBtn.title = '用系统默认程序打开';
   const saveBtn = el('button', 'primary', '保存');
   saveBtn.title = '保存（Ctrl+S）';

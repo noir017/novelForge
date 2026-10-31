@@ -2,11 +2,11 @@
  * 触屏与手机窄屏（2026-10-24，Android 壳实测之后）：样式里那几条能力探测的规矩、右键菜单与标题栏下拉整个落在可视区里、
  * 工程页三只悬停浮窗在手指下的入口（长按菜单最前面的「看一眼」、点感叹号）、窄屏上把欢迎页翻上来。
  * 摆位置的几何本身在 tests/unit/view/menuPlace.test.js；名词浮窗与叙事线总览的触屏交互在 nameMarks.test.js / threadsOverview.test.js；
- * 标题栏的书名在 welcome.test.js。真浏览器（360×640 触屏、1440×860 桌面）与 Android 真机的核对见 media/README.md「触屏与窄屏」。
+ * 标题栏的书名在 welcome.test.js；窄屏底栏、标题栏「⋯」、返回键与编辑区顶上两行的交互在 mobileNav.test.js。真浏览器（360×640 触屏、1440×860 桌面）与 Android 真机的核对见 media/README.md「触屏与窄屏」。
  *
  * | 用例 | 钉的是什么 |
  * |---|---|
- * | 样式 | 整页的列不被 min-content 撑开；`(hover: none)` 里整页不选字、正文与要复制的那几样照常能选、悬停才露的东西常显；`(pointer: coarse)`（与没登记指针的 `(pointer: none)`）里点击目标放大；窄屏上软键盘顶起来、正在对话输入框 / 编辑区里打字时收起活动栏与流水线条 / 章节条与工具栏；区分只用媒体查询，不认 UA；页头声明了 `interactive-widget=resizes-content` |
+ * | 样式 | 整页的列不被 min-content 撑开；`(hover: none)` 里整页不选字、正文与要复制的那几样照常能选、悬停才露的东西常显、不提快捷键、不显示「外部打开」；`(pointer: coarse)`（与没登记指针的 `(pointer: none)`）里点击目标放大、文字按钮的点击区往四周借；窄屏上活动栏成了底栏（文件 / 历史 / 日志 / 设置收进「更多」）、标题栏藏菜单栏、编辑区顶上只留标签条与章节条、提示条浮在底栏上；软键盘弹着（kb-open）或可视高度很矮时、正在打字就让出底栏与流水线条 / 章节条；宽屏上窄屏那几颗不出来；区分只用媒体查询，不认 UA；页头声明了 `interactive-widget=resizes-content` |
  * | 右键菜单 | 下半屏放不下：往上翻 / 平移贴底；比可视区还高：压 max-height；桌面上右下角照旧往左上翻 |
  * | 标题栏下拉与子菜单 | 「帮助」的下拉伸出右边就往左收（与按钮右沿对齐）；子菜单右边放不下翻到左边、贴边；点一下父菜单项也展开子菜单；手指点之前补发的 mouseenter / mouseover 不展开子菜单、不换菜单（实机上一点父项就打开了最近的书、点「编辑」把菜单全关了） |
  * | 工程页的「看一眼」 | 手指长按章节行：最前面「细纲速览」（挂着失败的还有「看失败原因」），点了钉住浮窗、按在外面才收；鼠标右键没有这几项；手指点之后补发的 mouseover 不弹浮窗；手指点感叹号钉住失败浮窗，鼠标点不弹；说明被截断的行长按有「看完整说明」 |
@@ -78,25 +78,47 @@ describe('触屏与窄屏：样式', { skip: JSDOM_SKIP }, () => {
     assert.match(coarse, /\.fx-row\s*\{[^}]*min-height:\s*40px/);
     assert.match(coarse, /\.icon-btn\s*\{[^}]*min-width:\s*40px/);
     assert.match(coarse, /--nf-title-height:\s*44px/);
-    assert.match(narrow, /inset:\s*var\(--nf-title-height\) 0 0/);
+    assert.match(narrow, /inset:\s*var\(--nf-title-height\) 0 var\(--nf-nav-height\)/);
   });
 
   test('放大点击目标那一段也认 (pointer: none)（Android 模拟器 / 容器里没有登记触屏）', () => {
     assert.match(css, /@media \(pointer: coarse\),\s*\(pointer: none\)/);
   });
 
-  test('窄屏 + 可视高度很矮（软键盘弹出来）：焦点在对话输入框里收起活动栏、流水线条、下一步、输入框底下那行小字；在编辑区里收起章节条与工具栏', () => {
+  test('窄屏 + 可视高度很矮（横屏或软键盘弹出来）：焦点在对话输入框里收起底栏、流水线条、下一步、输入框底下那行小字；在编辑区里收起章节条、工具栏与底栏', () => {
     const short = mediaBlocks(css, '(max-width: 900px) and (max-height: 480px)').join('\n');
     assert.match(short, /body\.workbench:has\(#input:focus\) :is\(\.tabbar, \.pipeline, \.nextstep, \.composer-meta\)\s*\{[^}]*display:\s*none/);
-    assert.match(short, /body\.workbench:has\(\.ed-area:focus\) :is\(\.ed-chapter-bar, \.ed-toolbar\)\s*\{[^}]*display:\s*none/);
+    assert.match(short, /body\.workbench:has\(\.ed-area:focus\) :is\(\.ed-chapter-bar, \.ed-toolbar, \.tabbar\)\s*\{[^}]*display:\s*none/);
+    assert.match(short, /--nf-nav-height:\s*0px/);
   });
 
-  test('窄屏：标题栏露书名、编辑区顶上两条横着滚、菜单不折字', () => {
+  test('窄屏 + 软键盘弹着（kb-open）：底栏让出来、编辑区落到底；打字时章节条、对话页的流水线条也让出来', () => {
+    assert.match(narrow, /body\.kb-open\s*\{[^}]*--nf-nav-height:\s*0px/);
+    assert.match(narrow, /body\.kb-open \.tabbar\s*\{[^}]*display:\s*none/);
+    assert.match(narrow, /body\.kb-open:has\(\.ed-area:focus\) \.ed-chapter-bar,\s*body\.kb-open:has\(#input:focus\) :is\(\.pipeline, \.nextstep, \.composer-meta\)\s*\{[^}]*display:\s*none/);
+  });
+
+  test('窄屏：活动栏成了底栏（排到侧栏下面），文件 / 历史 / 日志 / 设置收进「更多」；标题栏藏菜单栏、露书名；编辑区顶上只留标签条与章节条', () => {
+    assert.match(narrow, /\.workbench \.tabbar\s*\{[^}]*order:\s*1[^}]*height:\s*var\(--nf-nav-height\)/);
+    // 构建会把属性值的引号去掉。
+    assert.match(narrow, /\.workbench \.tab:is\(\[data-tab='?files'?\], \[data-tab='?history'?\], \[data-tab='?logs'?\], \[data-tab='?settings'?\]\)\s*\{[^}]*display:\s*none/);
+    assert.match(narrow, /\.wb-menubar\s*\{[^}]*display:\s*none/);
     assert.match(narrow, /\.wb-title-full\s*\{[^}]*display:\s*none/);
     assert.match(narrow, /\.wb-title-short\s*\{[^}]*display:\s*inline/);
-    assert.match(narrow, /\.ed-toolbar\s*\{[^}]*overflow-x:\s*auto/);
-    assert.match(narrow, /\.ed-chapter-actions\s*\{[^}]*overflow-x:\s*auto/);
+    assert.match(narrow, /\.ed-toolbar\s*\{[^}]*display:\s*none/);
+    assert.match(narrow, /\.ed-chapter-actions,\s*\.ed-chapter-nav-word\s*\{[^}]*display:\s*none/);
+    assert.match(narrow, /\.workbench \.toast\s*\{[^}]*bottom:\s*calc\(var\(--nf-nav-height\)/);
     assert.match(css, /\.wb-menu-btn\s*\{[^}]*white-space:\s*nowrap/);
+    // 宽屏上这几颗都不出来。
+    const wide = mediaBlocks(css, '(min-width: 901px)').join('\n');
+    // 按钮要写成 button.…：button.primary / button.chip-btn 自带 display，只写类名压不过（桌面上露出来过）。
+    assert.match(wide, /\.tab\[data-nav\],\s*#wbMoreBtn,\s*button\.ed-tabs-save,\s*button\.ed-tabs-tools,\s*button\.ed-chapter-menu\s*\{[^}]*display:\s*none/);
+  });
+
+  test('(hover: none)：快捷键提示与「外部打开」不显示；(pointer: coarse)：文字按钮的点击区往四周借', () => {
+    assert.match(hoverNone, /\.wb-menu-kbd,\s*\.kbd-hint,[^{]*\{[^}]*display:\s*none/);
+    assert.match(hoverNone, /\.ed-external-btn\s*\{[^}]*display:\s*none/);
+    assert.match(coarse, /button\.link\s*\{[^}]*padding:\s*10px 4px;[^}]*margin:\s*-10px -2px/);
   });
 
   test('区分形态只用能力探测：样式里没有按 UA、按壳分的选择器；页面声明了键盘弹出时缩布局视口', () => {

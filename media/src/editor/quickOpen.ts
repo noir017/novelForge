@@ -35,6 +35,7 @@ import { clear, el } from '../dom';
 import { projectStorageKey, toast } from '../globals';
 import type { InMessage, OutMessage } from '../protocol';
 import { onMessage } from '../vscodeApi';
+import { openChapterMessage } from '../narrow';
 import { isImeComposing } from './api';
 import { isDialogOpen } from './dialog';
 import {
@@ -343,7 +344,7 @@ function openEntry(entry: QuickOpenEntry, other: boolean): void {
   let expect: string[];
   if (entry.kind === 'chapter' && !other) {
     // 与工程页点章节行同一个动作：后端按宿主能力开正文与并排的细纲。
-    post({ type: 'openChapter', plotRelPath: entry.path });
+    post(openChapterMessage(entry.path));
     expect = [entry.chapterPath, entry.plotPath].filter((p): p is string => !!p);
   } else {
     post({ type: 'openEditor', path: entry.path, pane: other ? 'draft' : 'main' });

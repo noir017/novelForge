@@ -48,9 +48,9 @@ import { createPaneElements, mainRefs } from './paneElements';
 import type { CarriedDraft } from './paneElements';
 import {
   collectShell,
-  initNarrowToggle,
   initResizers,
   initTheme,
+  isNarrow,
   revealEditor,
 } from './shell';
 import {
@@ -300,7 +300,8 @@ function start(stage: HTMLElement): void {
   onMessage((msg) => {
     switch (msg.type) {
       case 'editorOpen': {
-        const target = msg.pane === 'draft' ? ensureDraftPane() : panes.main!;
+        // 窄屏上第二块不显示（只有一层覆盖）：要并排开的细纲、草稿开在主区，成了另一个标签。
+        const target = msg.pane === 'draft' && !isNarrow() ? ensureDraftPane() : panes.main!;
         // 一个路径同一时刻只属于一块编辑区。已经开在另一块里的，连同未保存的
         // 内容一起搬过来，不留两份各自漂移的副本。
         let carried: CarriedDraft | undefined;
@@ -371,7 +372,6 @@ function start(stage: HTMLElement): void {
 
   initTheme(shell);
   initResizers(shell);
-  initNarrowToggle(shell);
   syncDraftVisibility();
   restore();
 }

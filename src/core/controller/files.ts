@@ -124,8 +124,9 @@ async function openCompanion(rel: string): Promise<void> {
  * 不开细纲。
  *
  * `intent.preview`：工程页单击那一行的名字，两份都开成临时标签（内置编辑器认，原样带回 `editorOpen`）。
+ * `beside: false`：前端眼下没有第二块编辑区（窄屏），与宿主没有 `openBeside` 一样只开正文——并排的那份开进同一块会顶掉正文的临时标签。
  */
-export async function openChapter(c: ChatController, plotRelPath: string, intent?: EditorOpenIntent): Promise<void> {
+export async function openChapter(c: ChatController, plotRelPath: string, intent?: EditorOpenIntent, beside = true): Promise<void> {
   const chapters = await c.project.listChapters();
   const direct = chapters.find((ch) => ch.relPath === plotRelPath);
   const no = direct?.order ?? chapterNoOf(plotRelPath);
@@ -142,27 +143,27 @@ export async function openChapter(c: ChatController, plotRelPath: string, intent
     return;
   }
   await host.openFile(chapter.relPath, open);
-  if (!host.openBeside) {
+  if (!host.openBeside || !beside) {
     log.info(`打开第 ${chapter.order} 章`, chapter.relPath);
     return;
   }
   const ws = new Workspace(c.project);
-  let beside = plot?.relPath;
+  let companion = plot?.relPath;
   // 刚建了东西就重推：工程页那一行的 hasDraft / plotExists 要立刻翻过来。
   let refresh = false;
   if (c.companion === 'draft') {
-    beside = await ws.ensureDraft(chapter);
+    companion = await ws.ensureDraft(chapter);
     // 草稿可能是刚建的——与 openDraft 一样每次都推。
     refresh = true;
-  } else if (!beside) {
+  } else if (!companion) {
     const made = await ensureChapterPlot(c.project, ws, chapter);
-    beside = made?.rel;
+    companion = made?.rel;
     refresh = !!made?.created;
   }
-  if (beside) {
-    await host.openBeside(beside, open);
+  if (companion) {
+    await host.openBeside(companion, open);
   }
-  log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${beside ? ` ｜ 并排 ${beside}` : ''}`);
+  log.info(`打开第 ${chapter.order} 章`, `${chapter.relPath}${companion ? ` ｜ 并排 ${companion}` : ''}`);
   if (refresh) {
     await c.pushState();
   }
