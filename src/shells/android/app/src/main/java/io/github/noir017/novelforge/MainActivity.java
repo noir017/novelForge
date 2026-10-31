@@ -45,7 +45,7 @@ import java.util.concurrent.Executors;
 
 /**
  * WebView 壳。页面由服务端吐出来（独立版的同一个页面），壳只决定打开哪个地址：
- * - 本机模式：起内置服务端（{@link LocalServer}），带令牌登录后打开 http://127.0.0.1:端口；
+ * - 本机模式（缺省）：起内置服务端（{@link LocalServer}），带令牌登录后打开 http://127.0.0.1:端口；
  * - 远程模式：打开设置里填的服务器地址（比如部署在 NAS 上的 Docker 版），填了令牌就替作者登录。
  * 服务端设置是原生对话框：页面属于服务端，远程那台的版本不一定认识这个壳。入口是返回键弹出的菜单，
  * 连不上时的提示页上也有。
@@ -81,9 +81,7 @@ public class MainActivity extends Activity {
         root.addView(buildPanel());
         setContentView(root);
         setupWebView();
-
-        if (mode() == null) showServerSettings(true);
-        else boot();
+        boot();
     }
 
     private View buildPanel() {
@@ -107,7 +105,7 @@ public class MainActivity extends Activity {
         retry.setOnClickListener(v -> boot());
         Button settings = new Button(this);
         settings.setText("服务端设置");
-        settings.setOnClickListener(v -> showServerSettings(false));
+        settings.setOnClickListener(v -> showServerSettings());
         panelButtons.addView(retry);
         panelButtons.addView(settings);
         panel.addView(panelButtons);
@@ -184,9 +182,9 @@ public class MainActivity extends Activity {
         });
     }
 
-    /** "local" / "remote"；null = 还没选过 */
+    /** "local" / "remote"；缺省本机，远程要在服务端设置里切 */
     private String mode() {
-        return prefs.getString("mode", null);
+        return prefs.getString("mode", "local");
     }
 
     /** 按当前模式启停内置服务端，再打开对应的地址 */
@@ -197,7 +195,7 @@ public class MainActivity extends Activity {
             ServerService.stop(this);
             String url = prefs.getString("remote_url", "");
             if (url.isEmpty()) {
-                showServerSettings(false);
+                showServerSettings();
                 return;
             }
             Uri u = Uri.parse(url);
@@ -313,8 +311,7 @@ public class MainActivity extends Activity {
 
     // ── 服务端设置 ─────────────────────────────────────────────────
 
-    /** @param first 第一次打开：必须选一个，不能取消 */
-    private void showServerSettings(boolean first) {
+    private void showServerSettings() {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
@@ -366,13 +363,12 @@ public class MainActivity extends Activity {
         modes.setOnCheckedChangeListener((g, id) -> sync.run());
         sync.run();
 
-        AlertDialog.Builder b = new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("服务端")
                 .setView(form)
                 .setPositiveButton("确定", null)
-                .setCancelable(!first);
-        if (!first) b.setNegativeButton("取消", null);
-        AlertDialog dialog = b.show();
+                .setNegativeButton("取消", null)
+                .show();
         // 自己接「确定」：地址不对时不关对话框
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             boolean isLocal = modes.getCheckedRadioButtonId() == local.getId();
@@ -423,7 +419,7 @@ public class MainActivity extends Activity {
     private void showShellMenu() {
         new AlertDialog.Builder(this)
                 .setItems(new CharSequence[]{"服务端设置…", "退出 Novel Forge"}, (d, which) -> {
-                    if (which == 0) showServerSettings(false);
+                    if (which == 0) showServerSettings();
                     else quit();
                 })
                 .show();
