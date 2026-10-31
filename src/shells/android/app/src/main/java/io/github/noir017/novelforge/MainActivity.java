@@ -38,6 +38,9 @@ import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONTokener;
+
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
@@ -46,7 +49,8 @@ import java.util.concurrent.Executors;
 /**
  * WebView 壳。页面由服务端吐出来（独立版的同一个页面），壳只决定打开哪个地址：
  * - 本机模式（缺省）：起内置服务端（{@link LocalServer}），带令牌登录后打开 http://127.0.0.1:端口；
- * - 远程模式：打开设置里填的服务器地址（比如部署在 NAS 上的 Docker 版），填了令牌就替作者登录。
+ * - 远程模式：打开设置里填的服务器地址（比如部署在 NAS 上的 Docker 版），有令牌就替作者登录
+ *   （设置里填的，或在网页登录页上输对过一次的）。
  * 服务端设置是原生对话框：页面属于服务端，远程那台的版本不一定认识这个壳。入口是返回键弹出的菜单，
  * 连不上时的提示页上也有。
  */
@@ -147,6 +151,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (!loadFailed && !starting) panel.setVisibility(View.GONE);
+                if ("remote".equals(mode()) && sameOrigin(Uri.parse(url))) rememberWebLogin();
             }
 
             @Override
@@ -241,6 +246,41 @@ public class MainActivity extends Activity {
     private boolean sameOrigin(Uri u) {
         return base != null && base.getScheme() != null && base.getScheme().equals(u.getScheme())
                 && base.getEncodedAuthority() != null && base.getEncodedAuthority().equals(u.getEncodedAuthority());
+    }
+
+    /**
+     * 交登录表单时把令牌放进 sessionStorage；下一页不再是登录页（登录成了）就取出来交给壳，
+     * 还是登录页（令牌不对）就扔掉。返回值：取出来的令牌，没有就是 null
+     */
+    private static final String LOGIN_HOOK = "(function () {"
+            + "var k = 'nfShellToken', f = document.querySelector('form[action=\"/login\"]');"
+            + "if (f) {"
+            + "  sessionStorage.removeItem(k);"
+            + "  f.addEventListener('submit', function () {"
+            + "    sessionStorage.setItem(k, f.querySelector('input[name=\"token\"]').value);"
+            + "  });"
+            + "  return null;"
+            + "}"
+            + "var t = sessionStorage.getItem(k);"
+            + "sessionStorage.removeItem(k);"
+            + "return t;"
+            + "})()";
+
+    /**
+     * 远程模式下在网页登录页上输的令牌也记下来，之后与设置里填的一样每次替作者登录（cookie 只管 30 天）。
+     * 不用 addJavascriptInterface：那个对页面里的任何 iframe 都敞着；sessionStorage 只有服务端自己的源读写得到
+     */
+    private void rememberWebLogin() {
+        web.evaluateJavascript(LOGIN_HOOK, v -> {
+            try {
+                Object t = new JSONTokener(v).nextValue();
+                if (t instanceof String && !((String) t).isEmpty()) {
+                    prefs.edit().putString("remote_token", (String) t).apply();
+                }
+            } catch (JSONException ignored) {
+                // 页面没跑完脚本（比如已经跳走了）：这次不记
+            }
+        });
     }
 
     // ── 书放在哪 ──────────────────────────────────────────────────
@@ -344,7 +384,7 @@ public class MainActivity extends Activity {
         url.setText(prefs.getString("remote_url", ""));
         form.addView(url);
         EditText token = new EditText(this);
-        token.setHint("访问令牌（可空）");
+        token.setHint("访问令牌（空着就在网页上输，输对一次就记住）");
         // setSingleLine 会换掉遮挡字符的 TransformationMethod，必须排在设密码类型之前，不然令牌明文显示
         token.setSingleLine(true);
         token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
